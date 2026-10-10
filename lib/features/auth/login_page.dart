@@ -59,12 +59,17 @@ class _LoginPageState extends State<LoginPage> {
       final db = FirebaseFirestore.instance;
       const branchId = 'raki-bale-robe';
       final batch = db.batch();
-      batch.set(db.collection('branches').doc(branchId), {
-        'name': 'Raki Shop',
-        'location': 'Bale Robe',
-        'active': true,
-        'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      batch.set(
+        db.collection('branches').doc(branchId),
+        {
+          'name': 'Raki Shop',
+          'location': 'Bale Robe',
+          'active': true,
+          'ownerUid': uid,
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
       batch.set(db.collection('users').doc(uid), {
         'email': _email.text.trim().toLowerCase(),
         'role': 'owner',
