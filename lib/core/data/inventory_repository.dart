@@ -1,15 +1,12 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 
 class InventoryRepository {
-  InventoryRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})
-      : _db = firestore ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+  InventoryRepository({FirebaseFirestore? firestore})
+      : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
-  final FirebaseStorage _storage;
 
   Future<DocumentReference<Map<String, dynamic>>> startOrContinueCount({
     required String branchId,
@@ -86,7 +83,7 @@ class InventoryRepository {
       'createdAt': FieldValue.serverTimestamp(),
       'photoUrl': null,
       'photoStoragePath': null,
-      'photoState': 'pending',
+      'photoState': 'local_only',
       'nameState': suggestedName == null ? 'needs_review' : 'auto',
     }, SetOptions(merge: true));
   }
@@ -109,19 +106,17 @@ class InventoryRepository {
     required String itemId,
     required File file,
   }) async {
-    final path = 'stock-counts/$sessionId/$itemId.jpg';
-    final ref = _storage.ref(path);
-    await ref.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
-    final url = await ref.getDownloadURL();
+    // Zero-cost mode: product photos stay on the device.
+    // Firestore stores only metadata, never the image bytes.
+    if (!await file.exists()) return;
     await _db
         .collection('stock_count_sessions')
         .doc(sessionId)
         .collection('items')
         .doc(itemId)
         .set({
-      'photoStoragePath': path,
-      'photoUrl': url,
-      'photoState': 'uploaded',
+      'photoState': 'local_only',
+      'hasLocalPhoto': true,
     }, SetOptions(merge: true));
   }
 
