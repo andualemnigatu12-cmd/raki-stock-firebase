@@ -66,6 +66,9 @@ jobs:
           if 'com.google.gms.google-services' not in text:
               text = text.replace(plugin_marker, plugin_addition)
 
+          # camera 0.12.x targets Android SDK 24+.
+          text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
+
           signing_marker = 'signingConfig = signingConfigs.getByName("debug")'
           proguard = signing_marker + '''\n            proguardFiles(\n                getDefaultProguardFile("proguard-android-optimize.txt"),\n                "proguard-rules.pro",\n            )'''
           if 'proguard-rules.pro' not in text:
