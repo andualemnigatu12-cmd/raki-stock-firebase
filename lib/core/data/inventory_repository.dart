@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import 'product_catalog_repository.dart';
 
 class InventoryRepository {
   InventoryRepository({FirebaseFirestore? firestore})
@@ -59,13 +59,17 @@ class InventoryRepository {
 
   Future<void> saveCountItem({
     required String sessionId,
+    required String branchId,
     required String clientEntryId,
     required String tempCode,
     required int quantity,
     required String userId,
     required DateTime localCreatedAt,
+    required String localPhotoPath,
     String? suggestedName,
+    String? primaryText,
     String? rawOcr,
+    String? barcode,
   }) async {
     await _db
         .collection('stock_count_sessions')
@@ -75,16 +79,43 @@ class InventoryRepository {
         .set({
       'clientEntryId': clientEntryId,
       'tempCode': tempCode,
+      'branchId': branchId,
       'quantity': quantity,
       'suggestedName': suggestedName,
+      'primaryText': primaryText,
       'rawOcr': rawOcr,
+      'barcodeCandidate': barcode,
       'createdBy': userId,
       'localCreatedAt': Timestamp.fromDate(localCreatedAt),
       'createdAt': FieldValue.serverTimestamp(),
-      'photoUrl': null,
-      'photoStoragePath': null,
+      'localPhotoPath': localPhotoPath,
       'photoState': 'local_only',
+      'hasLocalPhoto': true,
       'nameState': suggestedName == null ? 'needs_review' : 'auto',
+      'reviewState': 'pending',
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> patchRecognizedData({
+    required String sessionId,
+    required String itemId,
+    String? suggestedName,
+    String? primaryText,
+    String? rawOcr,
+    String? barcode,
+  }) async {
+    await _db
+        .collection('stock_count_sessions')
+        .doc(sessionId)
+        .collection('items')
+        .doc(itemId)
+        .set({
+      'suggestedName': suggestedName,
+      'primaryText': primaryText,
+      'rawOcr': rawOcr,
+      'barcodeCandidate': barcode,
+      'nameState': suggestedName == null ? 'needs_review' : 'auto',
+      'ocrSource': suggestedName == null ? null : 'on_device_mlkit',
     }, SetOptions(merge: true));
   }
 
@@ -101,23 +132,81 @@ class InventoryRepository {
         .update({'suggestedName': name.trim(), 'nameState': 'corrected'});
   }
 
-  Future<void> uploadItemPhoto({
+  Future<String> reviewItemIntoStock({
+    required String branchId,
     required String sessionId,
     required String itemId,
-    required File file,
+    required String name,
+    required int quantity,
+    required double sellingPrice,
+    required String userId,
+    String? barcode,
   }) async {
-    // Zero-cost mode: product photos stay on the device.
-    // Firestore stores only metadata, never the image bytes.
-    if (!await file.exists()) return;
-    await _db
+    final cleanName = name.trim();
+    if (cleanName.isEmpty) throw ArgumentError('Product name is required.');
+    if (sellingPrice < 0) throw ArgumentError('Selling price cannot be negative.');
+
+    final normalizedName = ProductCatalogRepository.normalizeName(cleanName);
+    final normalizedBarcode =
+        ProductCatalogRepository.normalizeBarcode(barcode ?? '');
+    final productId = normalizedBarcode.isNotEmpty
+        ? '${_slug(branchId)}-b-$normalizedBarcode'
+        : '${_slug(branchId)}-i-${itemId.replaceAll('-', '')}';
+
+    final itemRef = _db
         .collection('stock_count_sessions')
         .doc(sessionId)
         .collection('items')
-        .doc(itemId)
-        .set({
-      'photoState': 'local_only',
-      'hasLocalPhoto': true,
-    }, SetOptions(merge: true));
+        .doc(itemId);
+    final productRef = _db.collection('products').doc(productId);
+
+    return _db.runTransaction<String>((transaction) async {
+      final itemSnapshot = await transaction.get(itemRef);
+      final itemData = itemSnapshot.data();
+      if (itemData == null) throw StateError('Count item no longer exists.');
+
+      if (itemData['reviewState'] == 'added') {
+        return itemData['linkedProductId'] as String? ?? productId;
+      }
+
+      final productSnapshot = await transaction.get(productRef);
+      final productData = productSnapshot.data();
+      final currentStock = (productData?['stockQty'] as num?)?.toInt() ?? 0;
+      final now = FieldValue.serverTimestamp();
+
+      final productWrite = <String, dynamic>{
+        'branchId': branchId,
+        'name': cleanName,
+        'normalizedName': normalizedName,
+        'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+        'sellingPrice': sellingPrice,
+        'stockQty': currentStock + quantity,
+        'active': true,
+        'updatedAt': now,
+        'updatedBy': userId,
+        'lastCountSessionId': sessionId,
+      };
+      if (!productSnapshot.exists) {
+        productWrite['createdAt'] = now;
+        productWrite['createdBy'] = userId;
+      }
+
+      transaction.set(productRef, productWrite, SetOptions(merge: true));
+      transaction.set(
+        itemRef,
+        {
+          'reviewState': 'added',
+          'linkedProductId': productId,
+          'reviewedName': cleanName,
+          'reviewedBarcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+          'reviewedSellingPrice': sellingPrice,
+          'reviewedAt': now,
+          'reviewedBy': userId,
+        },
+        SetOptions(merge: true),
+      );
+      return productId;
+    });
   }
 
   Future<void> finalizeSession(String sessionId) async {
@@ -126,4 +215,9 @@ class InventoryRepository {
       'finalizedAt': FieldValue.serverTimestamp(),
     });
   }
+
+  String _slug(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
 }
