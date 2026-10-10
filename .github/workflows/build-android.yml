@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -67,17 +67,10 @@ jobs:
       - name: Build installable test APK
         run: flutter build apk --debug
 
-      - name: Save APK in repository
+      - name: Prepare APK artifact
         run: |
           mkdir -p deliveries
           cp build/app/outputs/flutter-apk/app-debug.apk deliveries/Raki-Stock-Firebase-v1.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add deliveries/Raki-Stock-Firebase-v1.apk
-          if ! git diff --cached --quiet; then
-            git commit -m "Save latest Android APK"
-            git push
-          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
