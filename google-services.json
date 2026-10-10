@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "289305506824",
+    "project_id": "raki-stock-f3ab9",
+    "storage_bucket": "raki-stock-f3ab9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:289305506824:android:8be9e6671852975f288dbd",
+        "android_client_info": {
+          "package_name": "com.rakishop.raki_stock_firebase"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwxUgU58TVL4ap92sfS4u9VKJr4_-7-v0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
