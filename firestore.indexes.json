@@ -1,0 +1,22 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "stock_count_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "branchId", "order": "ASCENDING"},
+        {"fieldPath": "localCreatedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "stock_count_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "branchId", "order": "ASCENDING"},
+        {"fieldPath": "createdBy", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

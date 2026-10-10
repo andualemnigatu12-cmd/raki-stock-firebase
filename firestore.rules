@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function sameBranch(branchId) {
+      return signedIn() && userProfile().data.active == true && userProfile().data.branchId == branchId;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (request.auth.uid == userId || userProfile().data.role == 'owner');
+      allow delete: if false;
+    }
+
+    match /branches/{branchId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if sameBranch(branchId) && userProfile().data.role == 'owner';
+      allow delete: if false;
+    }
+
+    match /stock_count_sessions/{sessionId} {
+      allow read: if sameBranch(resource.data.branchId);
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && sameBranch(request.resource.data.branchId);
+      allow update: if sameBranch(resource.data.branchId);
+      allow delete: if false;
+
+      match /items/{itemId} {
+        allow read: if signedIn()
+          && sameBranch(get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId);
+        allow create: if signedIn()
+          && request.resource.data.createdBy == request.auth.uid
+          && sameBranch(get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId);
+        allow update: if signedIn()
+          && sameBranch(get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId);
+        allow delete: if false;
+      }
+    }
+  }
+}
