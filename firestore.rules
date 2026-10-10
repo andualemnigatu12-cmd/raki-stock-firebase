@@ -5,44 +5,112 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function profileExists() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userProfile() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    function activeUser() {
+      return profileExists() && userProfile().data.active == true;
+    }
+
+    function isOwner() {
+      return activeUser() && userProfile().data.role == 'owner';
+    }
+
     function sameBranch(branchId) {
-      return signedIn() && userProfile().data.active == true && userProfile().data.branchId == branchId;
+      return activeUser() && userProfile().data.branchId == branchId;
+    }
+
+    function ownerBootstrap(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == 'owner'
+        && request.resource.data.active == true
+        && request.resource.data.branchId == 'raki-bale-robe'
+        && getAfter(/databases/$(database)/documents/branches/raki-bale-robe).data.ownerUid == request.auth.uid;
     }
 
     match /users/{userId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && (request.auth.uid == userId || userProfile().data.role == 'owner');
+      allow read: if signedIn()
+        && (request.auth.uid == userId
+          || (isOwner() && resource.data.branchId == userProfile().data.branchId));
+
+      allow create: if ownerBootstrap(userId)
+        || (isOwner()
+          && request.resource.data.branchId == userProfile().data.branchId);
+
+      allow update: if isOwner()
+        && resource.data.branchId == userProfile().data.branchId
+        && request.resource.data.branchId == resource.data.branchId
+        || (signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.branchId == resource.data.branchId
+          && request.resource.data.active == resource.data.active);
+
       allow delete: if false;
     }
 
     match /branches/{branchId} {
-      allow read: if signedIn();
-      allow create: if signedIn();
-      allow update: if sameBranch(branchId) && userProfile().data.role == 'owner';
+      allow read: if sameBranch(branchId);
+
+      allow create: if signedIn()
+        && branchId == 'raki-bale-robe'
+        && !exists(/databases/$(database)/documents/branches/$(branchId))
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow update: if isOwner()
+        && sameBranch(branchId)
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+
+      allow delete: if false;
+    }
+
+    match /products/{productId} {
+      allow read: if sameBranch(resource.data.branchId);
+
+      allow create: if isOwner()
+        && request.resource.data.branchId == userProfile().data.branchId;
+
+      allow update: if isOwner()
+        && resource.data.branchId == userProfile().data.branchId
+        && request.resource.data.branchId == resource.data.branchId;
+
       allow delete: if false;
     }
 
     match /stock_count_sessions/{sessionId} {
       allow read: if sameBranch(resource.data.branchId);
+
       allow create: if signedIn()
         && request.resource.data.createdBy == request.auth.uid
         && sameBranch(request.resource.data.branchId);
-      allow update: if sameBranch(resource.data.branchId);
+
+      allow update: if sameBranch(resource.data.branchId)
+        && request.resource.data.branchId == resource.data.branchId
+        && (isOwner() || resource.data.createdBy == request.auth.uid);
+
       allow delete: if false;
 
       match /items/{itemId} {
-        allow read: if signedIn()
-          && sameBranch(get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId);
+        function sessionBranch() {
+          return get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId;
+        }
+
+        allow read: if sameBranch(sessionBranch());
+
         allow create: if signedIn()
           && request.resource.data.createdBy == request.auth.uid
-          && sameBranch(get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId);
-        allow update: if signedIn()
-          && sameBranch(get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId);
+          && sameBranch(sessionBranch());
+
+        allow update: if sameBranch(sessionBranch())
+          && (isOwner() || resource.data.createdBy == request.auth.uid);
+
         allow delete: if false;
       }
     }
