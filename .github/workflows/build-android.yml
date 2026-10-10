@@ -34,10 +34,20 @@ jobs:
           flutter create . --platforms=android --org=com.rakishop
           rm -f test/widget_test.dart
 
-      - name: Configure Firebase Android
-        if: hashFiles('google-services.json') != ''
+      - name: Configure Firebase and release shrinker
         run: |
-          cp google-services.json android/app/google-services.json
+          if [ -f google-services.json ]; then
+            cp google-services.json android/app/google-services.json
+          fi
+          cat > android/app/proguard-rules.pro <<'RULES'
+          # The Flutter ML Kit plugin references optional script recognizers.
+          # Raki Stock only ships the Latin recognizer, so these optional classes
+          # are intentionally absent and should not fail R8.
+          -dontwarn com.google.mlkit.vision.text.chinese.**
+          -dontwarn com.google.mlkit.vision.text.devanagari.**
+          -dontwarn com.google.mlkit.vision.text.japanese.**
+          -dontwarn com.google.mlkit.vision.text.korean.**
+          RULES
           python3 - <<'PY'
           from pathlib import Path
 
@@ -51,11 +61,16 @@ jobs:
 
           app = Path('android/app/build.gradle.kts')
           text = app.read_text()
-          marker = 'id("dev.flutter.flutter-gradle-plugin")'
-          addition = marker + '\n    id("com.google.gms.google-services")'
+          plugin_marker = 'id("dev.flutter.flutter-gradle-plugin")'
+          plugin_addition = plugin_marker + '\n    id("com.google.gms.google-services")'
           if 'com.google.gms.google-services' not in text:
-              text = text.replace(marker, addition)
-              app.write_text(text)
+              text = text.replace(plugin_marker, plugin_addition)
+
+          signing_marker = 'signingConfig = signingConfigs.getByName("debug")'
+          proguard = signing_marker + '''\n            proguardFiles(\n                getDefaultProguardFile("proguard-android-optimize.txt"),\n                "proguard-rules.pro",\n            )'''
+          if 'proguard-rules.pro' not in text:
+              text = text.replace(signing_marker, proguard)
+          app.write_text(text)
           PY
 
       - name: Get dependencies
@@ -64,18 +79,22 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
-      - name: Build installable test APK
-        run: flutter build apk --debug
+      - name: Build optimized release APKs
+        run: flutter build apk --release --split-per-abi
 
-      - name: Prepare APK artifact
+      - name: Prepare small APK artifacts
         run: |
           mkdir -p deliveries
-          cp build/app/outputs/flutter-apk/app-debug.apk deliveries/Raki-Stock-Firebase-v1.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk deliveries/Raki-Stock-v2-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk deliveries/Raki-Stock-v2-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk deliveries/Raki-Stock-v2-x86_64.apk
+          ls -lh deliveries
 
-      - name: Upload APK artifact
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Raki-Stock-Firebase-v1
-          path: deliveries/Raki-Stock-Firebase-v1.apk
+          name: Raki-Stock-v2-release
+          path: deliveries/*.apk
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
