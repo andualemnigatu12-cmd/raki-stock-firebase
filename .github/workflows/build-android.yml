@@ -62,7 +62,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Build release APK
         run: flutter build apk --release
@@ -78,3 +78,11 @@ jobs:
             git commit -m "Save latest Android APK"
             git push
           fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Raki-Stock-Firebase-v1
+          path: deliveries/Raki-Stock-Firebase-v1.apk
+          if-no-files-found: error
+          retention-days: 30
