@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'product_catalog_repository.dart';
@@ -12,30 +14,41 @@ class InventoryRepository {
     required String branchId,
     required String userId,
   }) async {
-    final query = await _db
+    final query = _db
         .collection('stock_count_sessions')
         .where('branchId', isEqualTo: branchId)
         .where('createdBy', isEqualTo: userId)
         .where('status', isEqualTo: 'draft')
-        .limit(1)
-        .get();
+        .limit(1);
 
-    if (query.docs.isNotEmpty) return query.docs.first.reference;
+    try {
+      final cached = await query.get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty) return cached.docs.first.reference;
+    } catch (_) {}
+
+    try {
+      final fresh = await query.get().timeout(const Duration(milliseconds: 900));
+      if (fresh.docs.isNotEmpty) return fresh.docs.first.reference;
+    } catch (_) {
+      // Weak/no network must never keep the employee waiting.
+    }
 
     final ref = _db.collection('stock_count_sessions').doc();
     final now = DateTime.now();
     final code =
         'CNT-${now.year.toString().substring(2)}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
 
-    await ref.set({
-      'code': code,
-      'branchId': branchId,
-      'createdBy': userId,
-      'status': 'draft',
-      'createdAt': FieldValue.serverTimestamp(),
-      'localCreatedAt': Timestamp.fromDate(now),
-      'finalizedAt': null,
-    });
+    unawaited(
+      ref.set({
+        'code': code,
+        'branchId': branchId,
+        'createdBy': userId,
+        'status': 'draft',
+        'createdAt': FieldValue.serverTimestamp(),
+        'localCreatedAt': Timestamp.fromDate(now),
+        'finalizedAt': null,
+      }).catchError((_) {}),
+    );
     return ref;
   }
 
@@ -54,6 +67,7 @@ class InventoryRepository {
         .doc(sessionId)
         .collection('items')
         .orderBy('localCreatedAt', descending: true)
+        .limit(8)
         .snapshots();
   }
 
