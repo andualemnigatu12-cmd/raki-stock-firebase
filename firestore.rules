@@ -44,9 +44,9 @@ service cloud.firestore {
         || (isOwner()
           && request.resource.data.branchId == userProfile().data.branchId);
 
-      allow update: if isOwner()
-        && resource.data.branchId == userProfile().data.branchId
-        && request.resource.data.branchId == resource.data.branchId
+      allow update: if (isOwner()
+          && resource.data.branchId == userProfile().data.branchId
+          && request.resource.data.branchId == resource.data.branchId)
         || (signedIn()
           && request.auth.uid == userId
           && request.resource.data.role == resource.data.role
@@ -81,7 +81,8 @@ service cloud.firestore {
         && resource.data.branchId == userProfile().data.branchId
         && request.resource.data.branchId == resource.data.branchId;
 
-      allow delete: if false;
+      allow delete: if isOwner()
+        && resource.data.branchId == userProfile().data.branchId;
     }
 
     match /stock_count_sessions/{sessionId} {
@@ -95,7 +96,7 @@ service cloud.firestore {
         && request.resource.data.branchId == resource.data.branchId
         && (isOwner() || resource.data.createdBy == request.auth.uid);
 
-      allow delete: if false;
+      allow delete: if isOwner() && sameBranch(resource.data.branchId);
 
       match /items/{itemId} {
         function sessionBranch() {
@@ -111,7 +112,7 @@ service cloud.firestore {
         allow update: if sameBranch(sessionBranch())
           && (isOwner() || resource.data.createdBy == request.auth.uid);
 
-        allow delete: if false;
+        allow delete: if isOwner() && sameBranch(sessionBranch());
       }
     }
   }
