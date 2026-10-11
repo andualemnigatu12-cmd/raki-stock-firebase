@@ -9,6 +9,7 @@ class ProductRecord {
     required this.sellingPrice,
     required this.stockQty,
     required this.active,
+    this.localPhotoPath,
   });
 
   final String id;
@@ -18,6 +19,7 @@ class ProductRecord {
   final double sellingPrice;
   final int stockQty;
   final bool active;
+  final String? localPhotoPath;
 
   factory ProductRecord.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
@@ -29,6 +31,7 @@ class ProductRecord {
       sellingPrice: (data['sellingPrice'] as num?)?.toDouble() ?? 0,
       stockQty: (data['stockQty'] as num?)?.toInt() ?? 0,
       active: data['active'] as bool? ?? true,
+      localPhotoPath: (data['localPhotoPath'] as String?)?.trim(),
     );
   }
 }
@@ -50,6 +53,15 @@ class ProductCatalogRepository {
       : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
+
+  // These indexes are rebuilt only when the catalog list instance changes.
+  // Barcode and exact-name matching therefore become O(1), and fuzzy matching
+  // usually checks only a small token bucket instead of the whole catalog.
+  List<ProductRecord>? _indexedProducts;
+  Map<String, ProductRecord> _barcodeIndex = const {};
+  Map<String, ProductRecord> _nameIndex = const {};
+  Map<String, List<ProductRecord>> _tokenIndex = const {};
+  Map<String, List<ProductRecord>> _foldedTokenIndex = const {};
 
   Query<Map<String, dynamic>> _query(String branchId) =>
       _db.collection('products').where('branchId', isEqualTo: branchId);
@@ -93,39 +105,38 @@ class ProductCatalogRepository {
     String? barcode,
     String? ocrName,
   }) {
+    _ensureIndex(products);
+
     final cleanBarcode = normalizeBarcode(barcode ?? '');
     if (cleanBarcode.isNotEmpty) {
-      for (final product in products) {
-        if (normalizeBarcode(product.barcode ?? '') == cleanBarcode) {
-          return ProductMatch(
-            product: product,
-            confidence: 1,
-            source: 'barcode',
-          );
-        }
+      final product = _barcodeIndex[cleanBarcode];
+      if (product != null) {
+        return ProductMatch(
+          product: product,
+          confidence: 1,
+          source: 'barcode',
+        );
       }
     }
 
     final queryName = normalizeName(ocrName ?? '');
     if (queryName.isEmpty) return null;
 
-    for (final product in products) {
-      final candidate = product.normalizedName.isNotEmpty
-          ? normalizeName(product.normalizedName)
-          : normalizeName(product.name);
-      if (candidate == queryName) {
-        return ProductMatch(
-          product: product,
-          confidence: 0.995,
-          source: 'name',
-        );
-      }
+    final exact = _nameIndex[queryName];
+    if (exact != null) {
+      return ProductMatch(
+        product: exact,
+        confidence: 0.995,
+        source: 'name',
+      );
     }
 
+    final candidates = _candidateProducts(queryName, products);
     ProductRecord? best;
     var bestScore = 0.0;
     var secondBestScore = 0.0;
-    for (final product in products) {
+
+    for (final product in candidates) {
       final candidate = product.normalizedName.isNotEmpty
           ? normalizeName(product.normalizedName)
           : normalizeName(product.name);
@@ -146,9 +157,6 @@ class ProductCatalogRepository {
     final safeMatch = bestScore >= 0.76 || (bestScore >= 0.69 && clearlyAhead);
     if (!safeMatch) return null;
 
-    // Fast Count currently applies catalog spelling when confidence is >= .82.
-    // Reaching this point already passed the ambiguity guard above, so expose a
-    // confidence floor of .82 to let the reviewed official spelling win.
     final appliedConfidence = bestScore < 0.82 ? 0.82 : bestScore;
     return ProductMatch(
       product: best,
@@ -156,6 +164,138 @@ class ProductCatalogRepository {
       source: 'name',
     );
   }
+
+  /// Fast local search for the upcoming Products screen. Exact/prefix results
+  /// are ranked first; then contains matches. No Firestore query is needed for
+  /// each keystroke because the already-synced local catalog is used.
+  List<ProductRecord> searchProducts(
+    List<ProductRecord> products,
+    String query, {
+    int limit = 40,
+  }) {
+    _ensureIndex(products);
+    final normalized = normalizeName(query);
+    final barcodeQuery = normalizeBarcode(query);
+
+    if (normalized.isEmpty && barcodeQuery.isEmpty) {
+      final result = [...products]
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      return result.take(limit).toList();
+    }
+
+    final scored = <({ProductRecord product, int score})>[];
+    for (final product in products) {
+      final name = product.normalizedName.isNotEmpty
+          ? normalizeName(product.normalizedName)
+          : normalizeName(product.name);
+      final barcode = normalizeBarcode(product.barcode ?? '');
+      var score = 0;
+
+      if (barcodeQuery.isNotEmpty && barcode == barcodeQuery) {
+        score = 1000;
+      } else if (name == normalized) {
+        score = 950;
+      } else if (normalized.isNotEmpty && name.startsWith(normalized)) {
+        score = 800;
+      } else if (normalized.isNotEmpty && name.contains(normalized)) {
+        score = 650;
+      } else if (barcodeQuery.length >= 3 && barcode.contains(barcodeQuery)) {
+        score = 600;
+      } else if (normalized.isNotEmpty) {
+        final queryTokens = normalized.split(' ');
+        final nameTokens = name.split(' ').toSet();
+        final hits = queryTokens.where(nameTokens.contains).length;
+        if (hits > 0) score = 300 + hits * 40;
+      }
+
+      if (score > 0) scored.add((product: product, score: score));
+    }
+
+    scored.sort((a, b) {
+      final scoreCompare = b.score.compareTo(a.score);
+      if (scoreCompare != 0) return scoreCompare;
+      return a.product.name
+          .toLowerCase()
+          .compareTo(b.product.name.toLowerCase());
+    });
+
+    return scored.take(limit).map((entry) => entry.product).toList();
+  }
+
+  void _ensureIndex(List<ProductRecord> products) {
+    if (identical(_indexedProducts, products)) return;
+
+    final barcodeIndex = <String, ProductRecord>{};
+    final nameIndex = <String, ProductRecord>{};
+    final tokenIndex = <String, List<ProductRecord>>{};
+    final foldedTokenIndex = <String, List<ProductRecord>>{};
+
+    for (final product in products) {
+      final barcode = normalizeBarcode(product.barcode ?? '');
+      if (barcode.isNotEmpty) barcodeIndex[barcode] = product;
+
+      final name = product.normalizedName.isNotEmpty
+          ? normalizeName(product.normalizedName)
+          : normalizeName(product.name);
+      if (name.isEmpty) continue;
+      nameIndex[name] = product;
+
+      final uniqueTokens = name
+          .split(' ')
+          .where((token) => token.length >= 3)
+          .toSet();
+      for (final token in uniqueTokens) {
+        (tokenIndex[token] ??= <ProductRecord>[]).add(product);
+        final folded = _foldOcrToken(token);
+        if (folded.isNotEmpty) {
+          (foldedTokenIndex[folded] ??= <ProductRecord>[]).add(product);
+        }
+      }
+    }
+
+    _indexedProducts = products;
+    _barcodeIndex = barcodeIndex;
+    _nameIndex = nameIndex;
+    _tokenIndex = tokenIndex;
+    _foldedTokenIndex = foldedTokenIndex;
+  }
+
+  List<ProductRecord> _candidateProducts(
+    String queryName,
+    List<ProductRecord> allProducts,
+  ) {
+    final unique = <String, ProductRecord>{};
+    final tokens = queryName
+        .split(' ')
+        .where((token) => token.length >= 3)
+        .toList();
+
+    for (final token in tokens) {
+      for (final product in _tokenIndex[token] ?? const <ProductRecord>[]) {
+        unique[product.id] = product;
+      }
+      final folded = _foldOcrToken(token);
+      for (final product in
+          _foldedTokenIndex[folded] ?? const <ProductRecord>[]) {
+        unique[product.id] = product;
+      }
+    }
+
+    // If OCR changed every significant token, fall back to the complete local
+    // list so accuracy is preserved. Normal scans usually stay in the much
+    // smaller indexed candidate set.
+    if (unique.isEmpty) return allProducts;
+    return unique.values.toList(growable: false);
+  }
+
+  String _foldOcrToken(String value) => value
+      .replaceAll('0', 'o')
+      .replaceAll('1', 'i')
+      .replaceAll('l', 'i')
+      .replaceAll('5', 's')
+      .replaceAll('8', 'b')
+      .replaceAll('2', 'z')
+      .replaceAll('9', 'g');
 
   double _nameSimilarity(String a, String b) {
     if (a == b) return 1;
