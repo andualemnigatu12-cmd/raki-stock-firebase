@@ -6,6 +6,7 @@ import '../../core/data/inventory_repository.dart';
 import '../../core/theme/app_theme.dart';
 import '../count/fast_count_page.dart';
 import '../stock/product_scan_page.dart';
+import '../stock/products_page.dart';
 import '../stock/stock_review_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -138,7 +139,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Scan. Match. See the price.',
+                        'Search or scan. Find it fast.',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 24,
@@ -148,25 +149,49 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Barcode matching is instant. If there is no barcode match, the app checks the main label against reviewed stock.',
+                        'Registered products stay in a local catalog for quick search and matching. Barcode matches are instant.',
                         style: TextStyle(
                           color: Color(0xFFDDE2FF),
                           height: 1.4,
                         ),
                       ),
                       const SizedBox(height: 18),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: AppTheme.primary,
-                        ),
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ProductScanPage(branchId: branchId),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: AppTheme.primary,
+                              ),
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ProductsPage(branchId: branchId),
+                                ),
+                              ),
+                              icon: const Icon(Icons.inventory_2_outlined),
+                              label: const Text('PRODUCTS'),
+                            ),
                           ),
-                        ),
-                        icon: const Icon(Icons.qr_code_scanner_rounded),
-                        label: const Text('SCAN PRODUCT'),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: AppTheme.primary,
+                              ),
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ProductScanPage(branchId: branchId),
+                                ),
+                              ),
+                              icon: const Icon(Icons.qr_code_scanner_rounded),
+                              label: const Text('SCAN'),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -180,16 +205,33 @@ class _HomePageState extends State<HomePage> {
                       child: _ActionCard(
                         icon: Icons.camera_alt_outlined,
                         title: 'Fast count',
-                        subtitle: 'Persistent camera • no reopen delay',
+                        subtitle: 'Capture and register stock',
                         onTap: () => _startCount(branchId, user.uid),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _ActionCard(
+                        icon: Icons.inventory_2_outlined,
+                        title: 'Products',
+                        subtitle: 'Search registered products',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ProductsPage(branchId: branchId),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ActionCard(
                         icon: Icons.qr_code_scanner_rounded,
                         title: 'Scan product',
-                        subtitle: 'Get saved name & price',
+                        subtitle: 'Instant barcode or OCR match',
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => ProductScanPage(branchId: branchId),
@@ -197,22 +239,23 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
+                    if (isOwner) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ActionCard(
+                          icon: Icons.fact_check_outlined,
+                          title: 'Stock review',
+                          subtitle: 'Approve, edit or delete',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => StockReviewPage(branchId: branchId),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-                if (isOwner) ...[
-                  const SizedBox(height: 12),
-                  _ActionCard(
-                    icon: Icons.fact_check_outlined,
-                    title: 'Stock review',
-                    subtitle:
-                        'Confirm names, barcode and selling price before adding to stock',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => StockReviewPage(branchId: branchId),
-                      ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 20),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _repo.watchRecentSessions(branchId),
