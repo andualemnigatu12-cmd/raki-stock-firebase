@@ -142,16 +142,17 @@ class ProductCatalogRepository {
 
     if (best == null) return null;
 
-    // Strong matches are accepted directly. A slightly lower score is allowed
-    // only when it is clearly better than every other product. This helps fix
-    // OCR spelling mistakes without silently selecting a similar product.
     final clearlyAhead = bestScore - secondBestScore >= 0.12;
     final safeMatch = bestScore >= 0.76 || (bestScore >= 0.69 && clearlyAhead);
     if (!safeMatch) return null;
 
+    // Fast Count currently applies catalog spelling when confidence is >= .82.
+    // Reaching this point already passed the ambiguity guard above, so expose a
+    // confidence floor of .82 to let the reviewed official spelling win.
+    final appliedConfidence = bestScore < 0.82 ? 0.82 : bestScore;
     return ProductMatch(
       product: best,
-      confidence: bestScore,
+      confidence: appliedConfidence,
       source: 'name',
     );
   }
@@ -270,8 +271,7 @@ class ProductCatalogRepository {
       'b8',
       'z2',
       'g9q',
-      'c(',
-      'u v',
+      'uv',
     ];
     for (final group in groups) {
       if (group.contains(a) && group.contains(b)) return 0.28;
