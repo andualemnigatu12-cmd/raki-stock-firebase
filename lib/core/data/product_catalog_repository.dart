@@ -124,6 +124,7 @@ class ProductCatalogRepository {
 
     ProductRecord? best;
     var bestScore = 0.0;
+    var secondBestScore = 0.0;
     for (final product in products) {
       final candidate = product.normalizedName.isNotEmpty
           ? normalizeName(product.normalizedName)
@@ -131,14 +132,23 @@ class ProductCatalogRepository {
       if (candidate.isEmpty) continue;
       final score = _nameSimilarity(queryName, candidate);
       if (score > bestScore) {
+        secondBestScore = bestScore;
         bestScore = score;
         best = product;
+      } else if (score > secondBestScore) {
+        secondBestScore = score;
       }
     }
 
-    // Keep automatic matching conservative. Below this threshold the UI should
-    // ask for review instead of silently linking two similar products.
-    if (best == null || bestScore < 0.74) return null;
+    if (best == null) return null;
+
+    // Strong matches are accepted directly. A slightly lower score is allowed
+    // only when it is clearly better than every other product. This helps fix
+    // OCR spelling mistakes without silently selecting a similar product.
+    final clearlyAhead = bestScore - secondBestScore >= 0.12;
+    final safeMatch = bestScore >= 0.76 || (bestScore >= 0.69 && clearlyAhead);
+    if (!safeMatch) return null;
+
     return ProductMatch(
       product: best,
       confidence: bestScore,
@@ -162,7 +172,7 @@ class ProductCatalogRepository {
     final tokenScore = _softTokenSimilarity(a, b);
     final firstWordScore = _firstWordSimilarity(a, b);
 
-    var score = charScore * 0.42 + tokenScore * 0.48 + firstWordScore * 0.10;
+    var score = charScore * 0.40 + tokenScore * 0.50 + firstWordScore * 0.10;
     if (containmentScore > score) score = containmentScore;
     return score > 1 ? 1 : score;
   }
@@ -191,7 +201,7 @@ class ProductCatalogRepository {
         }
       }
 
-      if (best >= 0.58) {
+      if (best >= 0.54) {
         weightedMatches += best * weight;
         if (bestIndex >= 0) used.add(bestIndex);
       }
@@ -200,8 +210,6 @@ class ProductCatalogRepository {
     if (totalWeight == 0) return 0;
     final forward = weightedMatches / totalWeight;
 
-    // Penalize cases where one short OCR phrase happens to match only a small
-    // piece of a much longer product name.
     final lengthBalance =
         (aTokens.length < bTokens.length ? aTokens.length : bTokens.length) /
             (aTokens.length > bTokens.length ? aTokens.length : bTokens.length);
@@ -209,8 +217,10 @@ class ProductCatalogRepository {
   }
 
   double _firstWordSimilarity(String a, String b) {
-    final aFirst = a.split(' ').firstWhere((word) => word.isNotEmpty, orElse: () => '');
-    final bFirst = b.split(' ').firstWhere((word) => word.isNotEmpty, orElse: () => '');
+    final aFirst =
+        a.split(' ').firstWhere((word) => word.isNotEmpty, orElse: () => '');
+    final bFirst =
+        b.split(' ').firstWhere((word) => word.isNotEmpty, orElse: () => '');
     if (aFirst.isEmpty || bFirst.isEmpty) return 0;
     return _stringSimilarity(aFirst, bFirst);
   }
@@ -218,24 +228,27 @@ class ProductCatalogRepository {
   double _stringSimilarity(String a, String b) {
     if (a == b) return 1;
     if (a.isEmpty || b.isEmpty) return 0;
-    final distance = _levenshtein(a, b);
+    final distance = _weightedEditDistance(a, b);
     final longest = a.length > b.length ? a.length : b.length;
     if (longest == 0) return 1;
     final score = 1 - (distance / longest);
     return score < 0 ? 0 : score;
   }
 
-  int _levenshtein(String a, String b) {
+  double _weightedEditDistance(String a, String b) {
     if (a == b) return 0;
-    if (a.isEmpty) return b.length;
-    if (b.isEmpty) return a.length;
+    if (a.isEmpty) return b.length.toDouble();
+    if (b.isEmpty) return a.length.toDouble();
 
-    var previous = List<int>.generate(b.length + 1, (index) => index);
+    var previous =
+        List<double>.generate(b.length + 1, (index) => index.toDouble());
     for (var i = 1; i <= a.length; i++) {
-      final current = List<int>.filled(b.length + 1, 0);
-      current[0] = i;
+      final current = List<double>.filled(b.length + 1, 0);
+      current[0] = i.toDouble();
       for (var j = 1; j <= b.length; j++) {
-        final substitutionCost = a.codeUnitAt(i - 1) == b.codeUnitAt(j - 1) ? 0 : 1;
+        final left = a.substring(i - 1, i);
+        final right = b.substring(j - 1, j);
+        final substitutionCost = _ocrSubstitutionCost(left, right);
         final insertion = current[j - 1] + 1;
         final deletion = previous[j] + 1;
         final substitution = previous[j - 1] + substitutionCost;
@@ -248,16 +261,56 @@ class ProductCatalogRepository {
     return previous[b.length];
   }
 
+  double _ocrSubstitutionCost(String a, String b) {
+    if (a == b) return 0;
+    const groups = <String>[
+      'o0',
+      'i1l',
+      's5',
+      'b8',
+      'z2',
+      'g9q',
+      'c(',
+      'u v',
+    ];
+    for (final group in groups) {
+      if (group.contains(a) && group.contains(b)) return 0.28;
+    }
+    return 1;
+  }
+
   static String normalizeName(String input) {
     var value = input.toLowerCase();
     const replacements = <String, String>{
-      'á': 'a', 'à': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a',
-      'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
-      'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
-      'ó': 'o', 'ò': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
-      'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
-      'ç': 'c', 'ñ': 'n', 'ý': 'y', 'ÿ': 'y',
-      'æ': 'ae', 'œ': 'oe',
+      'á': 'a',
+      'à': 'a',
+      'â': 'a',
+      'ã': 'a',
+      'ä': 'a',
+      'å': 'a',
+      'é': 'e',
+      'è': 'e',
+      'ê': 'e',
+      'ë': 'e',
+      'í': 'i',
+      'ì': 'i',
+      'î': 'i',
+      'ï': 'i',
+      'ó': 'o',
+      'ò': 'o',
+      'ô': 'o',
+      'õ': 'o',
+      'ö': 'o',
+      'ú': 'u',
+      'ù': 'u',
+      'û': 'u',
+      'ü': 'u',
+      'ç': 'c',
+      'ñ': 'n',
+      'ý': 'y',
+      'ÿ': 'y',
+      'æ': 'ae',
+      'œ': 'oe',
     };
     replacements.forEach((from, to) {
       value = value.replaceAll(from, to);
