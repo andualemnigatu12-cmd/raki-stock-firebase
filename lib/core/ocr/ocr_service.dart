@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show Rect;
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image/image.dart' as img;
 
 class OcrResult {
   const OcrResult({
@@ -47,16 +49,138 @@ class OcrService {
   }
 
   Future<OcrResult> _readNow(String imagePath) async {
-    final result =
+    final fullResult =
         await _recognizer.processImage(InputImage.fromFilePath(imagePath));
-    final raw = result.text.trim();
-    final suggestion = _suggestProductName(result);
+    final fullSuggestion = _suggestProductName(fullResult);
+
+    RecognizedText? enhancedResult;
+    String? enhancedPath;
+    try {
+      enhancedPath = await _createEnhancedLabelCrop(imagePath);
+      if (enhancedPath != null) {
+        enhancedResult = await _recognizer.processImage(
+          InputImage.fromFilePath(enhancedPath),
+        );
+      }
+    } catch (_) {
+      // The original high-resolution OCR result is still usable if image
+      // preprocessing is unsupported or the temporary crop cannot be created.
+    } finally {
+      if (enhancedPath != null) {
+        try {
+          await File(enhancedPath).delete();
+        } catch (_) {}
+      }
+    }
+
+    final enhancedSuggestion = enhancedResult == null
+        ? null
+        : _suggestProductName(enhancedResult);
+    final suggestion = _chooseSuggestion(fullSuggestion, enhancedSuggestion);
+    final raw = _mergeRawText(
+      fullResult.text,
+      enhancedResult?.text,
+    );
+
     return OcrResult(
-      rawText: raw.isEmpty ? null : raw,
+      rawText: raw,
       suggestedName: suggestion?.name,
       primaryText: suggestion?.primary,
       confidence: suggestion?.confidence ?? 0,
     );
+  }
+
+  Future<String?> _createEnhancedLabelCrop(String imagePath) async {
+    final file = File(imagePath);
+    final bytes = await file.readAsBytes();
+    final source = img.decodeImage(bytes);
+    if (source == null || source.width < 240 || source.height < 240) return null;
+
+    // Most retail labels occupy the central ~90% of the object. Removing the
+    // extreme edges reduces background noise while keeping brand + variant +
+    // size text. The crop is then enlarged and contrast-balanced for small text.
+    final x = (source.width * 0.05).round();
+    final y = (source.height * 0.10).round();
+    final width = (source.width * 0.90).round().clamp(1, source.width - x);
+    final height = (source.height * 0.80).round().clamp(1, source.height - y);
+    var label = img.copyCrop(
+      source,
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+    );
+
+    final desiredWidth = label.width < 1800 ? 1800 : label.width;
+    final safeWidth = desiredWidth > 2400 ? 2400 : desiredWidth;
+    if (safeWidth != label.width) {
+      label = img.copyResize(
+        label,
+        width: safeWidth,
+        interpolation: img.Interpolation.cubic,
+      );
+    }
+
+    label = img.adjustColor(
+      label,
+      contrast: 1.16,
+      brightness: 1.03,
+      saturation: 0.92,
+    );
+
+    final tempPath = '$imagePath.ocr-label.jpg';
+    await File(tempPath).writeAsBytes(img.encodeJpg(label, quality: 95));
+    return tempPath;
+  }
+
+  String? _mergeRawText(String first, String? second) {
+    final lines = <String>[];
+    final seen = <String>{};
+    for (final source in [first, if (second != null) second]) {
+      for (final line in source.split(RegExp(r'[\r\n]+'))) {
+        final cleaned = line.replaceAll(RegExp(r'\s+'), ' ').trim();
+        if (cleaned.isEmpty) continue;
+        final key = _normalize(cleaned);
+        if (key.isEmpty || seen.contains(key)) continue;
+        seen.add(key);
+        lines.add(cleaned);
+      }
+    }
+    if (lines.isEmpty) return null;
+    return lines.join('\n');
+  }
+
+  _NameSuggestion? _chooseSuggestion(
+    _NameSuggestion? full,
+    _NameSuggestion? enhanced,
+  ) {
+    if (full == null) return enhanced;
+    if (enhanced == null) return full;
+
+    final a = _normalize(full.name);
+    final b = _normalize(enhanced.name);
+    if (a == b) {
+      return enhanced.confidence >= full.confidence ? enhanced : full;
+    }
+
+    // If one pass captured the other plus extra useful words, prefer the more
+    // complete phrase unless its OCR confidence is dramatically worse.
+    if ((a.contains(b) || b.contains(a)) &&
+        (full.confidence - enhanced.confidence).abs() < 0.22) {
+      return full.name.length >= enhanced.name.length ? full : enhanced;
+    }
+
+    double score(_NameSuggestion value) {
+      final words = value.name
+          .split(RegExp(r'\s+'))
+          .where((word) => word.length > 1)
+          .length;
+      final completeness = words.clamp(1, 7) * 0.045;
+      final lengthBonus = value.name.length.clamp(0, 90) / 900;
+      return value.confidence + completeness + lengthBonus;
+    }
+
+    return score(enhanced) > score(full) ? enhanced : full;
   }
 
   _NameSuggestion? _suggestProductName(RecognizedText result) {
@@ -104,11 +228,11 @@ class OcrService {
       final upperRatio = letters == 0 ? 0.0 : uppercase / letters;
       final heightScore = (candidate.height / maxHeight) * 96;
       final areaScore = (candidate.area / maxArea) * 34;
-      final compactScore = candidate.text.length <= 30 ? 13 : 4;
-      final wordScore = words <= 4 ? 13 : (words <= 7 ? 7 : -6);
-      final confidenceScore = candidate.confidence * 14;
+      final compactScore = candidate.text.length <= 34 ? 13 : 5;
+      final wordScore = words <= 5 ? 13 : (words <= 8 ? 7 : -5);
+      final confidenceScore = candidate.confidence * 16;
       final letterScore = letters >= 3 ? 9 : 0;
-      final digitPenalty = digits * 1.4;
+      final digitPenalty = digits * 1.2;
       final score = heightScore +
           areaScore +
           upperRatio * 18 +
@@ -142,10 +266,10 @@ class OcrService {
         candidate.value.height,
       );
       final heightRatio = candidate.value.height / primary.value.height;
-      final closeVertically = gap <= referenceHeight * 3.4;
-      final aligned = overlap >= 0.18 || centerAlignment >= 0.55;
-      final readableSize = heightRatio >= 0.27;
-      final usefulConfidence = candidate.value.confidence >= 0.34;
+      final closeVertically = gap <= referenceHeight * 4.0;
+      final aligned = overlap >= 0.14 || centerAlignment >= 0.50;
+      final readableSize = heightRatio >= 0.22;
+      final usefulConfidence = candidate.value.confidence >= 0.28;
 
       if (!(sameBlock || (closeVertically && aligned))) continue;
       if (!readableSize || !usefulConfidence) continue;
@@ -156,7 +280,7 @@ class OcrService {
           centerAlignment * 24 +
           _minDouble(heightRatio, 1.0) * 20 +
           candidate.value.confidence * 12 -
-          (gap / referenceHeight) * 6;
+          (gap / referenceHeight) * 5;
       related.add(_RelatedCandidate(candidate, relationScore));
     }
 
@@ -164,7 +288,7 @@ class OcrService {
 
     final selected = <_ScoredCandidate>[primary];
     for (final relatedCandidate in related) {
-      if (selected.length >= 5) break;
+      if (selected.length >= 7) break;
       final candidate = relatedCandidate.scored;
       final normalized = _normalize(candidate.value.text);
       final duplicate = selected.any((existing) {
@@ -206,7 +330,7 @@ class OcrService {
       name = '$name $size';
     }
 
-    if (name.length > 140) name = name.substring(0, 140).trim();
+    if (name.length > 180) name = name.substring(0, 180).trim();
 
     final averageConfidence = selected.isEmpty
         ? 0.0
@@ -258,7 +382,7 @@ class OcrService {
         .replaceAll(RegExp(r'[^A-Za-z0-9À-ÿ&+\-\s.,]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-    if (text.length < 2 || text.length > 64) return null;
+    if (text.length < 2 || text.length > 80) return null;
     if (!RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(text)) return null;
 
     final lower = text.toLowerCase();
