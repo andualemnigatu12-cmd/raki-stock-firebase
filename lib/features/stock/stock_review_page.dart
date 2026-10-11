@@ -23,17 +23,44 @@ class StockReviewPage extends StatelessWidget {
         ),
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        // Keep this query index-free. Sorting happens locally so a missing
+        // composite Firestore index can never make finished counts disappear.
         stream: FirebaseFirestore.instance
             .collection('stock_count_sessions')
             .where('branchId', isEqualTo: branchId)
-            .orderBy('localCreatedAt', descending: true)
-            .limit(30)
+            .limit(50)
             .snapshots(),
         builder: (context, sessionSnapshot) {
-          final sessions = sessionSnapshot.data?.docs ?? const [];
+          if (sessionSnapshot.hasError) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Could not load stock counts. Check the connection and try again.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+
+          if (sessionSnapshot.connectionState == ConnectionState.waiting &&
+              !sessionSnapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final sessions = [...?sessionSnapshot.data?.docs];
+          sessions.sort((a, b) {
+            final aTime = a.data()['localCreatedAt'] as Timestamp?;
+            final bTime = b.data()['localCreatedAt'] as Timestamp?;
+            final aMillis = aTime?.millisecondsSinceEpoch ?? 0;
+            final bMillis = bTime?.millisecondsSinceEpoch ?? 0;
+            return bMillis.compareTo(aMillis);
+          });
+
           if (sessions.isEmpty) {
             return const Center(child: Text('No stock counts yet.'));
           }
+
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
             itemCount: sessions.length,
@@ -42,20 +69,27 @@ class StockReviewPage extends StatelessWidget {
               final session = sessions[index];
               final data = session.data();
               final status = data['status'] as String? ?? 'draft';
+              final isLatest = index == 0;
+
               return Card(
                 child: ExpansionTile(
+                  initiallyExpanded: isLatest,
                   tilePadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
                   childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
                   title: Text(
-                    data['code'] as String? ?? 'Stock count',
+                    isLatest
+                        ? '${data['code'] as String? ?? 'Stock count'} • LATEST'
+                        : data['code'] as String? ?? 'Stock count',
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       color: AppTheme.ink,
                     ),
                   ),
                   subtitle: Text(
-                    status == 'finalized' ? 'Finished count' : 'Draft count',
+                    status == 'finalized'
+                        ? 'Finished count • products and quantities below'
+                        : 'Draft count • products and quantities below',
                   ),
                   trailing: _StatusPill(status: status),
                   children: [
@@ -65,127 +99,192 @@ class StockReviewPage extends StatelessWidget {
                           .orderBy('localCreatedAt', descending: true)
                           .snapshots(),
                       builder: (context, itemSnapshot) {
+                        if (itemSnapshot.hasError) {
+                          return const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Text(
+                              'Could not load the products in this count.',
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+
+                        if (itemSnapshot.connectionState ==
+                                ConnectionState.waiting &&
+                            !itemSnapshot.hasData) {
+                          return const Padding(
+                            padding: EdgeInsets.all(18),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
                         final items = itemSnapshot.data?.docs ?? const [];
                         if (items.isEmpty) {
                           return const Padding(
                             padding: EdgeInsets.all(12),
-                            child: Text('No products in this count.'),
+                            child: Text('No products in this count yet.'),
                           );
                         }
+
+                        final totalUnits = items.fold<int>(
+                          0,
+                          (sum, doc) =>
+                              sum +
+                              ((doc.data()['quantity'] as num?)?.toInt() ?? 0),
+                        );
+
                         return Column(
-                          children: items.map((doc) {
-                            final item = doc.data();
-                            final name =
-                                (item['suggestedName'] as String?)?.trim();
-                            final title = name?.isNotEmpty == true
-                                ? name!
-                                : (item['tempCode'] as String? ??
-                                    'Unnamed product');
-                            final localPath =
-                                (item['localPhotoPath'] as String?)?.trim();
-                            final added = item['reviewState'] == 'added';
-                            final quantity =
-                                (item['quantity'] as num?)?.toInt() ?? 0;
-                            return Container(
-                              margin: const EdgeInsets.only(top: 8),
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppTheme.border),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(top: 6, bottom: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
                               ),
-                              child: Column(
-                                children: [
-                                  Row(
-                                    children: [
-                                      _LocalPhoto(path: localPath),
-                                      const SizedBox(width: 11),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              title,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                color: AppTheme.ink,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              added
-                                                  ? 'ADDED TO STOCK'
-                                                  : name?.isNotEmpty == true
-                                                      ? 'AUTO NAME • REVIEW IT'
-                                                      : 'NEEDS REVIEW',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.w800,
-                                                color: added
-                                                    ? AppTheme.success
-                                                    : AppTheme.warning,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Text(
-                                        '×$quantity',
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w900,
-                                          color: AppTheme.ink,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 9),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: added
-                                        ? OutlinedButton.icon(
-                                            onPressed: null,
-                                            icon: const Icon(
-                                              Icons.check_circle_rounded,
-                                            ),
-                                            label: Text(
-                                              'IN STOCK • ${_priceText(item['reviewedSellingPrice'])}',
-                                            ),
-                                          )
-                                        : FilledButton.icon(
-                                            onPressed: () {
-                                              showDialog<void>(
-                                                context: context,
-                                                builder: (_) =>
-                                                    _ReviewProductDialog(
-                                                  branchId: branchId,
-                                                  sessionId: session.id,
-                                                  itemId: doc.id,
-                                                  quantity: quantity,
-                                                  initialName: name ?? '',
-                                                  initialBarcode: (item[
-                                                              'barcodeCandidate']
-                                                          as String?) ??
-                                                      '',
-                                                  localPhotoPath: localPath,
+                              decoration: BoxDecoration(
+                                color: AppTheme.primarySoft,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                '${items.length} products • $totalUnits total units',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  color: AppTheme.ink,
+                                ),
+                              ),
+                            ),
+                            ...items.map((doc) {
+                              final item = doc.data();
+                              final name =
+                                  (item['suggestedName'] as String?)?.trim();
+                              final reviewedName =
+                                  (item['reviewedName'] as String?)?.trim();
+                              final displayName =
+                                  reviewedName?.isNotEmpty == true
+                                      ? reviewedName!
+                                      : name?.isNotEmpty == true
+                                          ? name!
+                                          : (item['tempCode'] as String? ??
+                                              'Unnamed product');
+                              final localPath =
+                                  (item['localPhotoPath'] as String?)?.trim();
+                              final added = item['reviewState'] == 'added';
+                              final quantity =
+                                  (item['quantity'] as num?)?.toInt() ?? 0;
+
+                              return Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: AppTheme.border),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        _LocalPhoto(path: localPath),
+                                        const SizedBox(width: 11),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                displayName,
+                                                maxLines: 3,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  color: AppTheme.ink,
                                                 ),
-                                              );
-                                            },
-                                            icon: const Icon(
-                                              Icons.fact_check_outlined,
-                                            ),
-                                            label: const Text(
-                                              'REVIEW & ADD TO STOCK',
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                added
+                                                    ? 'ADDED TO PRODUCTS'
+                                                    : name?.isNotEmpty == true
+                                                        ? 'AUTO NAME • REVIEW IT'
+                                                        : 'NEEDS REVIEW',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: added
+                                                      ? AppTheme.success
+                                                      : AppTheme.warning,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 7,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.background,
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            'QTY $quantity',
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w900,
+                                              color: AppTheme.ink,
                                             ),
                                           ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 9),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: added
+                                          ? OutlinedButton.icon(
+                                              onPressed: null,
+                                              icon: const Icon(
+                                                Icons.check_circle_rounded,
+                                              ),
+                                              label: Text(
+                                                'IN PRODUCTS • ${_priceText(item['reviewedSellingPrice'])}',
+                                              ),
+                                            )
+                                          : FilledButton.icon(
+                                              onPressed: () {
+                                                showDialog<void>(
+                                                  context: context,
+                                                  builder: (_) =>
+                                                      _ReviewProductDialog(
+                                                    branchId: branchId,
+                                                    sessionId: session.id,
+                                                    itemId: doc.id,
+                                                    quantity: quantity,
+                                                    initialName: name ?? '',
+                                                    initialBarcode: (item[
+                                                                'barcodeCandidate']
+                                                            as String?) ??
+                                                        '',
+                                                    localPhotoPath: localPath,
+                                                  ),
+                                                );
+                                              },
+                                              icon: const Icon(
+                                                Icons.fact_check_outlined,
+                                              ),
+                                              label: const Text(
+                                                'REVIEW & ADD TO PRODUCTS',
+                                              ),
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
                         );
                       },
                     ),
@@ -311,7 +410,8 @@ class _ReviewProductDialogState extends State<_ReviewProductDialog> {
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Product name',
-                  helperText: 'Fix the automatic name if needed.',
+                  helperText:
+                      'Confirm spelling once. Future scans use this official name.',
                 ),
               ),
               const SizedBox(height: 10),
@@ -332,7 +432,10 @@ class _ReviewProductDialogState extends State<_ReviewProductDialog> {
                 ),
               ),
               const SizedBox(height: 8),
-              Text('Opening quantity: ${widget.quantity}'),
+              Text(
+                'Counted quantity: ${widget.quantity}',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
               if (_error != null) ...[
                 const SizedBox(height: 8),
                 Text(_error!, style: const TextStyle(color: Colors.redAccent)),
@@ -348,7 +451,7 @@ class _ReviewProductDialogState extends State<_ReviewProductDialog> {
         ),
         FilledButton(
           onPressed: _saving ? null : _submit,
-          child: Text(_saving ? 'ADDING…' : 'ADD TO STOCK'),
+          child: Text(_saving ? 'ADDING…' : 'ADD TO PRODUCTS'),
         ),
       ],
     );
