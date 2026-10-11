@@ -176,6 +176,7 @@ class InventoryRepository {
     final normalizedBarcode =
         ProductCatalogRepository.normalizeBarcode(barcode ?? '');
     final existingLinkedId = (itemData['linkedProductId'] as String?)?.trim();
+    final localPhotoPath = (itemData['localPhotoPath'] as String?)?.trim();
     final productId = existingLinkedId?.isNotEmpty == true
         ? existingLinkedId!
         : _productId(
@@ -200,23 +201,24 @@ class InventoryRepository {
     final now = FieldValue.serverTimestamp();
     final productRef = _db.collection('products').doc(productId);
     final batch = _db.batch();
+    final productWrite = <String, dynamic>{
+      'branchId': branchId,
+      'name': cleanName,
+      'normalizedName': normalizedName,
+      'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+      'sellingPrice': sellingPrice,
+      'stockQty': sessionTotal,
+      'active': true,
+      'updatedAt': now,
+      'updatedBy': userId,
+      'lastCountSessionId': sessionId,
+    };
+    if (localPhotoPath?.isNotEmpty == true) {
+      productWrite['localPhotoPath'] = localPhotoPath;
+      productWrite['photoState'] = 'local_only';
+    }
 
-    batch.set(
-      productRef,
-      {
-        'branchId': branchId,
-        'name': cleanName,
-        'normalizedName': normalizedName,
-        'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
-        'sellingPrice': sellingPrice,
-        'stockQty': sessionTotal,
-        'active': true,
-        'updatedAt': now,
-        'updatedBy': userId,
-        'lastCountSessionId': sessionId,
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(productRef, productWrite, SetOptions(merge: true));
 
     batch.set(
       itemRef,
@@ -301,6 +303,11 @@ class InventoryRepository {
 
       final previousPrice = (data['reviewedSellingPrice'] as num?)?.toDouble();
       if (previousPrice != null) productWrite['sellingPrice'] = previousPrice;
+      final localPhotoPath = (data['localPhotoPath'] as String?)?.trim();
+      if (localPhotoPath?.isNotEmpty == true) {
+        productWrite['localPhotoPath'] = localPhotoPath;
+        productWrite['photoState'] = 'local_only';
+      }
 
       batch.set(
         _db.collection('products').doc(productId),
