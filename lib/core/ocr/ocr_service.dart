@@ -8,11 +8,13 @@ class OcrResult {
     required this.rawText,
     required this.suggestedName,
     required this.primaryText,
+    this.confidence = 0,
   });
 
   final String? rawText;
   final String? suggestedName;
   final String? primaryText;
+  final double confidence;
 }
 
 class OcrService {
@@ -27,7 +29,11 @@ class OcrService {
     _tail = _tail.then((_) async {
       if (_closed) {
         completer.complete(
-          const OcrResult(rawText: null, suggestedName: null, primaryText: null),
+          const OcrResult(
+            rawText: null,
+            suggestedName: null,
+            primaryText: null,
+          ),
         );
         return;
       }
@@ -49,6 +55,7 @@ class OcrService {
       rawText: raw.isEmpty ? null : raw,
       suggestedName: suggestion?.name,
       primaryText: suggestion?.primary,
+      confidence: suggestion?.confidence ?? 0,
     );
   }
 
@@ -56,6 +63,7 @@ class OcrService {
     final candidates = <_Candidate>[];
     final allText = <String>[];
     var index = 0;
+    var blockIndex = 0;
 
     for (final block in result.blocks) {
       for (final line in block.lines) {
@@ -68,6 +76,7 @@ class OcrService {
             _Candidate(
               text: cleaned,
               index: index,
+              blockIndex: blockIndex,
               rect: line.boundingBox,
               confidence: line.confidence ?? 0.65,
             ),
@@ -75,6 +84,7 @@ class OcrService {
         }
         index++;
       }
+      blockIndex++;
     }
 
     if (candidates.isEmpty) return null;
@@ -88,20 +98,20 @@ class OcrService {
 
     final scored = candidates.map((candidate) {
       final letters = RegExp(r'[A-Za-zÀ-ÿ]').allMatches(candidate.text).length;
-      final uppercase = RegExp(r'[A-Z]').allMatches(candidate.text).length;
+      final uppercase = RegExp(r'[A-ZÀ-Þ]').allMatches(candidate.text).length;
       final digits = RegExp(r'\d').allMatches(candidate.text).length;
       final words = candidate.text.split(RegExp(r'\s+')).length;
       final upperRatio = letters == 0 ? 0.0 : uppercase / letters;
-      final heightScore = (candidate.height / maxHeight) * 92;
-      final areaScore = (candidate.area / maxArea) * 38;
-      final compactScore = candidate.text.length <= 28 ? 12 : 0;
-      final wordScore = words <= 4 ? 12 : (words <= 6 ? 4 : -10);
-      final confidenceScore = candidate.confidence * 10;
-      final letterScore = letters >= 3 ? 8 : 0;
-      final digitPenalty = digits * 1.8;
+      final heightScore = (candidate.height / maxHeight) * 96;
+      final areaScore = (candidate.area / maxArea) * 34;
+      final compactScore = candidate.text.length <= 30 ? 13 : 4;
+      final wordScore = words <= 4 ? 13 : (words <= 7 ? 7 : -6);
+      final confidenceScore = candidate.confidence * 14;
+      final letterScore = letters >= 3 ? 9 : 0;
+      final digitPenalty = digits * 1.4;
       final score = heightScore +
           areaScore +
-          upperRatio * 20 +
+          upperRatio * 18 +
           compactScore +
           wordScore +
           confidenceScore +
@@ -112,62 +122,143 @@ class OcrService {
       ..sort((a, b) => b.score.compareTo(a.score));
 
     final primary = scored.first;
-    final selected = <_ScoredCandidate>[primary];
+    final related = <_RelatedCandidate>[];
 
     for (final candidate in scored.skip(1)) {
-      final primaryNorm = _normalize(primary.value.text);
-      final candidateNorm = _normalize(candidate.value.text);
-      if (primaryNorm == candidateNorm ||
-          primaryNorm.contains(candidateNorm) ||
-          candidateNorm.contains(primaryNorm)) {
+      if (_isDuplicate(primary.value.text, candidate.value.text)) continue;
+
+      final sameBlock = candidate.value.blockIndex == primary.value.blockIndex;
+      final overlap = _horizontalOverlapRatio(
+        primary.value.rect,
+        candidate.value.rect,
+      );
+      final centerAlignment = _centerAlignment(
+        primary.value.rect,
+        candidate.value.rect,
+      );
+      final gap = _verticalGap(primary.value.rect, candidate.value.rect);
+      final referenceHeight = _maxDouble(
+        primary.value.height,
+        candidate.value.height,
+      );
+      final heightRatio = candidate.value.height / primary.value.height;
+      final closeVertically = gap <= referenceHeight * 3.4;
+      final aligned = overlap >= 0.18 || centerAlignment >= 0.55;
+      final readableSize = heightRatio >= 0.27;
+      final usefulConfidence = candidate.value.confidence >= 0.34;
+
+      if (!(sameBlock || (closeVertically && aligned))) continue;
+      if (!readableSize || !usefulConfidence) continue;
+
+      final relationScore =
+          (sameBlock ? 48.0 : 0.0) +
+          overlap * 32 +
+          centerAlignment * 24 +
+          _minDouble(heightRatio, 1.0) * 20 +
+          candidate.value.confidence * 12 -
+          (gap / referenceHeight) * 6;
+      related.add(_RelatedCandidate(candidate, relationScore));
+    }
+
+    related.sort((a, b) => b.relationScore.compareTo(a.relationScore));
+
+    final selected = <_ScoredCandidate>[primary];
+    for (final relatedCandidate in related) {
+      if (selected.length >= 5) break;
+      final candidate = relatedCandidate.scored;
+      final normalized = _normalize(candidate.value.text);
+      final duplicate = selected.any((existing) {
+        final existingNormalized = _normalize(existing.value.text);
+        return existingNormalized == normalized ||
+            existingNormalized.contains(normalized) ||
+            normalized.contains(existingNormalized);
+      });
+      if (!duplicate) selected.add(candidate);
+    }
+
+    selected.sort((a, b) {
+      final topCompare = a.value.rect.top.compareTo(b.value.rect.top);
+      if (topCompare != 0) return topCompare;
+      return a.value.rect.left.compareTo(b.value.rect.left);
+    });
+
+    final nameParts = <String>[];
+    for (final candidate in selected) {
+      final pretty = _pretty(candidate.value.text);
+      if (pretty.isEmpty) continue;
+      final normalized = _normalize(pretty);
+      if (nameParts.any((part) {
+        final existing = _normalize(part);
+        return existing == normalized ||
+            existing.contains(normalized) ||
+            normalized.contains(existing);
+      })) {
         continue;
       }
-      final closeEnough = _verticallyClose(primary.value.rect, candidate.value.rect);
-      final stillProminent = candidate.value.height >= primary.value.height * 0.55 &&
-          candidate.score >= primary.score * 0.70;
-      final shortEnough = candidate.value.text.split(RegExp(r'\s+')).length <= 4;
-      if (closeEnough && stillProminent && shortEnough) {
-        selected.add(candidate);
-      }
-      break;
+      nameParts.add(pretty);
     }
 
-    selected.sort((a, b) => a.value.rect.top.compareTo(b.value.rect.top));
-    var name = selected
-        .map((candidate) => _pretty(candidate.value.text))
-        .where((value) => value.isNotEmpty)
-        .join(' ')
-        .trim();
-
+    var name = nameParts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     if (name.isEmpty) return null;
+
     final size = _extractSize(allText.join(' '));
-    if (size != null && !name.toLowerCase().contains(size.toLowerCase())) {
+    if (size != null && !_normalize(name).contains(_normalize(size))) {
       name = '$name $size';
     }
-    if (name.length > 72) name = name.substring(0, 72).trim();
+
+    if (name.length > 140) name = name.substring(0, 140).trim();
+
+    final averageConfidence = selected.isEmpty
+        ? 0.0
+        : selected
+                .map((candidate) => candidate.value.confidence)
+                .fold<double>(0, (sum, value) => sum + value) /
+            selected.length;
 
     return _NameSuggestion(
       name: name,
       primary: _pretty(primary.value.text),
+      confidence: averageConfidence,
     );
   }
 
-  bool _verticallyClose(Rect a, Rect b) {
-    final gap = b.top > a.bottom
-        ? b.top - a.bottom
-        : a.top > b.bottom
-            ? a.top - b.bottom
-            : 0.0;
-    final reference = a.height > b.height ? a.height : b.height;
-    return gap <= reference * 1.8;
+  bool _isDuplicate(String a, String b) {
+    final first = _normalize(a);
+    final second = _normalize(b);
+    return first == second || first.contains(second) || second.contains(first);
+  }
+
+  double _horizontalOverlapRatio(Rect a, Rect b) {
+    final left = _maxDouble(a.left, b.left);
+    final right = _minDouble(a.right, b.right);
+    final overlap = right - left;
+    if (overlap <= 0) return 0;
+    final smallerWidth = _minDouble(a.width, b.width);
+    if (smallerWidth <= 0) return 0;
+    return _minDouble(overlap / smallerWidth, 1);
+  }
+
+  double _centerAlignment(Rect a, Rect b) {
+    final aCenter = (a.left + a.right) / 2;
+    final bCenter = (b.left + b.right) / 2;
+    final distance = (aCenter - bCenter).abs();
+    final reference = _maxDouble(a.width, b.width);
+    if (reference <= 0) return 0;
+    return _maxDouble(0, 1 - (distance / reference));
+  }
+
+  double _verticalGap(Rect a, Rect b) {
+    if (b.top > a.bottom) return b.top - a.bottom;
+    if (a.top > b.bottom) return a.top - b.bottom;
+    return 0;
   }
 
   String? _clean(String input) {
     final text = input
-        .replaceAll(RegExp(r'[^A-Za-z0-9À-ÿ&+\-\s.]'), ' ')
+        .replaceAll(RegExp(r'[^A-Za-z0-9À-ÿ&+\-\s.,]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-    if (text.length < 2 || text.length > 46) return null;
+    if (text.length < 2 || text.length > 64) return null;
     if (!RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(text)) return null;
 
     final lower = text.toLowerCase();
@@ -204,29 +295,38 @@ class OcrService {
       'storage',
       'copyright',
       'trademark',
+      'recycle',
+      'recycling',
+      'consumer service',
+      'serving size',
+      'daily value',
     ];
     for (final phrase in blocked) {
       if (lower.contains(phrase)) return null;
     }
 
-    if (RegExp(r'^\d+[\s.,%-]*(ml|l|g|kg|oz|cl|pcs?)?$', caseSensitive: false)
-        .hasMatch(text)) {
+    if (RegExp(
+      r'^\d+[\s.,%-]*(ml|l|g|kg|oz|cl|pcs?|pack)?$',
+      caseSensitive: false,
+    ).hasMatch(text)) {
       return null;
     }
     final digits = RegExp(r'\d').allMatches(text).length;
-    if (digits > 6 && digits > text.length ~/ 3) return null;
+    if (digits > 8 && digits > text.length ~/ 3) return null;
     return text;
   }
 
   String? _extractSize(String input) {
     final match = RegExp(
-      r'\b(\d+(?:[.,]\d+)?)\s*(ml|l|g|kg|cl|oz)\b',
+      r'\b(\d+(?:[.,]\d+)?)\s*(ml|l|g|kg|cl|oz|fl\s*oz|pcs?|pack)\b',
       caseSensitive: false,
     ).firstMatch(input);
     if (match == null) return null;
     final number = match.group(1)?.replaceAll(',', '.');
-    final unit = match.group(2)?.toLowerCase();
-    return number == null || unit == null ? null : '$number$unit';
+    var unit = match.group(2)?.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    if (number == null || unit == null) return null;
+    if (unit == 'fl oz') unit = 'fl oz';
+    return '$number$unit';
   }
 
   String _pretty(String input) {
@@ -242,6 +342,8 @@ class OcrService {
       'of',
       'for',
       'with',
+      'and',
+      'the',
     };
     return words.asMap().entries.map((entry) {
       final word = entry.value;
@@ -249,6 +351,7 @@ class OcrService {
       if (entry.key > 0 && connectors.contains(lower)) return lower;
       if (word.isEmpty) return word;
       if (word.length <= 4 && word == word.toUpperCase()) return word;
+      if (RegExp(r'^\d').hasMatch(word)) return word;
       return '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}';
     }).join(' ');
   }
@@ -258,6 +361,9 @@ class OcrService {
       .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+
+  double _maxDouble(double a, double b) => a > b ? a : b;
+  double _minDouble(double a, double b) => a < b ? a : b;
 
   Future<void> dispose() async {
     _closed = true;
@@ -270,12 +376,14 @@ class _Candidate {
   const _Candidate({
     required this.text,
     required this.index,
+    required this.blockIndex,
     required this.rect,
     required this.confidence,
   });
 
   final String text;
   final int index;
+  final int blockIndex;
   final Rect rect;
   final double confidence;
 
@@ -292,8 +400,20 @@ class _ScoredCandidate {
   final double score;
 }
 
+class _RelatedCandidate {
+  const _RelatedCandidate(this.scored, this.relationScore);
+  final _ScoredCandidate scored;
+  final double relationScore;
+}
+
 class _NameSuggestion {
-  const _NameSuggestion({required this.name, required this.primary});
+  const _NameSuggestion({
+    required this.name,
+    required this.primary,
+    required this.confidence,
+  });
+
   final String name;
   final String primary;
+  final double confidence;
 }
