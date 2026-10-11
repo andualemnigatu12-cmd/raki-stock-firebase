@@ -53,7 +53,6 @@ class InventoryRepository {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> watchRecentSessions(String branchId) {
-    // Keep this index-free. Screens that need newest-first sort locally.
     return _db
         .collection('stock_count_sessions')
         .where('branchId', isEqualTo: branchId)
@@ -146,6 +145,12 @@ class InventoryRepository {
         .update({'suggestedName': name.trim(), 'nameState': 'corrected'});
   }
 
+  /// Reviews one counted item and reconciles the product stock to the total
+  /// quantity counted for that product in this session.
+  ///
+  /// This intentionally does NOT read the product document before writing it.
+  /// A read of a not-yet-created product can be rejected by Firestore rules,
+  /// which was the cause of owner approval failing for brand-new products.
   Future<String> reviewItemIntoStock({
     required String branchId,
     required String sessionId,
@@ -158,77 +163,203 @@ class InventoryRepository {
   }) async {
     final cleanName = name.trim();
     if (cleanName.isEmpty) throw ArgumentError('Product name is required.');
+    if (quantity <= 0) throw ArgumentError('Quantity must be greater than zero.');
     if (sellingPrice < 0) throw ArgumentError('Selling price cannot be negative.');
+
+    final sessionRef = _db.collection('stock_count_sessions').doc(sessionId);
+    final itemRef = sessionRef.collection('items').doc(itemId);
+    final itemSnapshot = await itemRef.get();
+    final itemData = itemSnapshot.data();
+    if (itemData == null) throw StateError('Count item no longer exists.');
 
     final normalizedName = ProductCatalogRepository.normalizeName(cleanName);
     final normalizedBarcode =
         ProductCatalogRepository.normalizeBarcode(barcode ?? '');
-    final productId = normalizedBarcode.isNotEmpty
-        ? '${_slug(branchId)}-b-$normalizedBarcode'
-        : '${_slug(branchId)}-i-${itemId.replaceAll('-', '')}';
+    final existingLinkedId = (itemData['linkedProductId'] as String?)?.trim();
+    final productId = existingLinkedId?.isNotEmpty == true
+        ? existingLinkedId!
+        : _productId(
+            branchId: branchId,
+            normalizedName: normalizedName,
+            normalizedBarcode: normalizedBarcode,
+          );
 
-    final itemRef = _db
-        .collection('stock_count_sessions')
-        .doc(sessionId)
-        .collection('items')
-        .doc(itemId);
+    // Sum any already-approved duplicate entries for the same product in this
+    // count, then add the quantity currently being reviewed. This preserves
+    // physical-count semantics without reading the product document itself.
+    final allItems = await sessionRef.collection('items').get();
+    var sessionTotal = quantity;
+    for (final doc in allItems.docs) {
+      if (doc.id == itemId) continue;
+      final data = doc.data();
+      if (data['reviewState'] != 'added') continue;
+      if ((data['linkedProductId'] as String?) != productId) continue;
+      sessionTotal += (data['quantity'] as num?)?.toInt() ?? 0;
+    }
+
+    final now = FieldValue.serverTimestamp();
     final productRef = _db.collection('products').doc(productId);
+    final batch = _db.batch();
 
-    return _db.runTransaction<String>((transaction) async {
-      final itemSnapshot = await transaction.get(itemRef);
-      final itemData = itemSnapshot.data();
-      if (itemData == null) throw StateError('Count item no longer exists.');
-
-      if (itemData['reviewState'] == 'added') {
-        return itemData['linkedProductId'] as String? ?? productId;
-      }
-
-      final productSnapshot = await transaction.get(productRef);
-      final productData = productSnapshot.data();
-      final currentStock = (productData?['stockQty'] as num?)?.toInt() ?? 0;
-      final alreadyCountedInThisSession =
-          productData?['lastCountSessionId'] == sessionId;
-      final reconciledStock =
-          alreadyCountedInThisSession ? currentStock + quantity : quantity;
-      final now = FieldValue.serverTimestamp();
-
-      final productWrite = <String, dynamic>{
+    batch.set(
+      productRef,
+      {
         'branchId': branchId,
         'name': cleanName,
         'normalizedName': normalizedName,
         'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
         'sellingPrice': sellingPrice,
-        // A physical stock count is a reconciliation, not a purchase. The first
-        // reviewed entry for a product in a new count session replaces the old
-        // stock quantity. Extra entries for the same product in the same session
-        // are added together.
-        'stockQty': reconciledStock,
+        'stockQty': sessionTotal,
+        'active': true,
+        'updatedAt': now,
+        'updatedBy': userId,
+        'lastCountSessionId': sessionId,
+      },
+      SetOptions(merge: true),
+    );
+
+    batch.set(
+      itemRef,
+      {
+        'quantity': quantity,
+        'suggestedName': cleanName,
+        'barcodeCandidate': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+        'nameState': 'corrected',
+        'reviewState': 'added',
+        'linkedProductId': productId,
+        'reviewedName': cleanName,
+        'reviewedBarcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+        'reviewedSellingPrice': sellingPrice,
+        'reviewedAt': now,
+        'reviewedBy': userId,
+      },
+      SetOptions(merge: true),
+    );
+
+    await batch.commit();
+    return productId;
+  }
+
+  /// Accepts every pending item that has an OCR/product name. Existing product
+  /// prices are preserved because bulk approval does not write a sellingPrice.
+  /// New products without a price remain at the app's default 0 until the owner
+  /// opens the item and edits its price.
+  Future<int> approveAllPending({
+    required String branchId,
+    required String sessionId,
+    required String userId,
+  }) async {
+    final sessionRef = _db.collection('stock_count_sessions').doc(sessionId);
+    final snapshot = await sessionRef.collection('items').get();
+    if (snapshot.docs.isEmpty) return 0;
+
+    final totals = <String, int>{};
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['reviewState'] != 'added') continue;
+      final linked = (data['linkedProductId'] as String?)?.trim();
+      if (linked == null || linked.isEmpty) continue;
+      totals[linked] = (totals[linked] ?? 0) +
+          ((data['quantity'] as num?)?.toInt() ?? 0);
+    }
+
+    final batch = _db.batch();
+    final now = FieldValue.serverTimestamp();
+    var approved = 0;
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['reviewState'] == 'added') continue;
+
+      final name = (data['suggestedName'] as String?)?.trim() ?? '';
+      final quantity = (data['quantity'] as num?)?.toInt() ?? 0;
+      if (name.isEmpty || quantity <= 0) continue;
+
+      final normalizedName = ProductCatalogRepository.normalizeName(name);
+      final normalizedBarcode = ProductCatalogRepository.normalizeBarcode(
+        (data['barcodeCandidate'] as String?) ?? '',
+      );
+      final productId = _productId(
+        branchId: branchId,
+        normalizedName: normalizedName,
+        normalizedBarcode: normalizedBarcode,
+      );
+      final nextTotal = (totals[productId] ?? 0) + quantity;
+      totals[productId] = nextTotal;
+
+      final productWrite = <String, dynamic>{
+        'branchId': branchId,
+        'name': name,
+        'normalizedName': normalizedName,
+        'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+        'stockQty': nextTotal,
         'active': true,
         'updatedAt': now,
         'updatedBy': userId,
         'lastCountSessionId': sessionId,
       };
-      if (!productSnapshot.exists) {
-        productWrite['createdAt'] = now;
-        productWrite['createdBy'] = userId;
-      }
 
-      transaction.set(productRef, productWrite, SetOptions(merge: true));
-      transaction.set(
-        itemRef,
+      final previousPrice = (data['reviewedSellingPrice'] as num?)?.toDouble();
+      if (previousPrice != null) productWrite['sellingPrice'] = previousPrice;
+
+      batch.set(
+        _db.collection('products').doc(productId),
+        productWrite,
+        SetOptions(merge: true),
+      );
+      batch.set(
+        doc.reference,
         {
           'reviewState': 'added',
           'linkedProductId': productId,
-          'reviewedName': cleanName,
+          'reviewedName': name,
           'reviewedBarcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
-          'reviewedSellingPrice': sellingPrice,
           'reviewedAt': now,
           'reviewedBy': userId,
         },
         SetOptions(merge: true),
       );
-      return productId;
-    });
+      approved++;
+    }
+
+    if (approved > 0) await batch.commit();
+    return approved;
+  }
+
+  Future<void> deleteCountItem({
+    required String sessionId,
+    required String itemId,
+    bool deleteLinkedProduct = false,
+  }) async {
+    final itemRef = _db
+        .collection('stock_count_sessions')
+        .doc(sessionId)
+        .collection('items')
+        .doc(itemId);
+    final snapshot = await itemRef.get();
+    final data = snapshot.data();
+    if (data == null) return;
+
+    final batch = _db.batch();
+    if (deleteLinkedProduct) {
+      final linked = (data['linkedProductId'] as String?)?.trim();
+      if (linked?.isNotEmpty == true) {
+        batch.delete(_db.collection('products').doc(linked));
+      }
+    }
+    batch.delete(itemRef);
+    await batch.commit();
+  }
+
+  Future<void> deleteSession(String sessionId) async {
+    final sessionRef = _db.collection('stock_count_sessions').doc(sessionId);
+    final items = await sessionRef.collection('items').get();
+    final batch = _db.batch();
+    for (final doc in items.docs) {
+      batch.delete(doc.reference);
+    }
+    batch.delete(sessionRef);
+    await batch.commit();
   }
 
   Future<void> finalizeSession(String sessionId) async {
@@ -236,6 +367,28 @@ class InventoryRepository {
       'status': 'finalized',
       'finalizedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  String _productId({
+    required String branchId,
+    required String normalizedName,
+    required String normalizedBarcode,
+  }) {
+    if (normalizedBarcode.isNotEmpty) {
+      return '${_slug(branchId)}-b-$normalizedBarcode';
+    }
+    return '${_slug(branchId)}-n-${_stableHash(normalizedName)}';
+  }
+
+  String _stableHash(String value) {
+    // 32-bit FNV-1a. Stable across app launches and compact enough for a
+    // Firestore document ID. Same corrected product name => same product.
+    var hash = 0x811c9dc5;
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
   }
 
   String _slug(String value) => value
