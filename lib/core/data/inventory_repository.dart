@@ -53,11 +53,11 @@ class InventoryRepository {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> watchRecentSessions(String branchId) {
+    // Keep this index-free. Screens that need newest-first sort locally.
     return _db
         .collection('stock_count_sessions')
         .where('branchId', isEqualTo: branchId)
-        .orderBy('localCreatedAt', descending: true)
-        .limit(20)
+        .limit(50)
         .snapshots();
   }
 
@@ -186,6 +186,10 @@ class InventoryRepository {
       final productSnapshot = await transaction.get(productRef);
       final productData = productSnapshot.data();
       final currentStock = (productData?['stockQty'] as num?)?.toInt() ?? 0;
+      final alreadyCountedInThisSession =
+          productData?['lastCountSessionId'] == sessionId;
+      final reconciledStock =
+          alreadyCountedInThisSession ? currentStock + quantity : quantity;
       final now = FieldValue.serverTimestamp();
 
       final productWrite = <String, dynamic>{
@@ -194,7 +198,11 @@ class InventoryRepository {
         'normalizedName': normalizedName,
         'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
         'sellingPrice': sellingPrice,
-        'stockQty': currentStock + quantity,
+        // A physical stock count is a reconciliation, not a purchase. The first
+        // reviewed entry for a product in a new count session replaces the old
+        // stock quantity. Extra entries for the same product in the same session
+        // are added together.
+        'stockQty': reconciledStock,
         'active': true,
         'updatedAt': now,
         'updatedBy': userId,
