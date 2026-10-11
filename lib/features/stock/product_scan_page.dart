@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -81,15 +82,18 @@ class _ProductScanPageState extends State<ProductScanPage>
         (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
+      // Scanning is a lookup operation, not a registration photo. Medium
+      // resolution is much faster for ML Kit while still being enough for
+      // barcode and label matching on normal retail packaging.
       final controller = CameraController(
         back,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
       try {
-        await controller.setJpegImageQuality(86);
+        await controller.setJpegImageQuality(78);
       } catch (_) {}
       try {
         await controller.setFlashMode(FlashMode.off);
@@ -153,6 +157,8 @@ class _ProductScanPageState extends State<ProductScanPage>
         }
       } catch (_) {}
 
+      // Barcode and exact-name lookups use the in-memory product indexes, so
+      // there is no Firestore request in the matching path.
       ProductMatch? match = _catalog.findBestMatch(
         _products,
         barcode: barcode,
@@ -218,7 +224,7 @@ class _ProductScanPageState extends State<ProductScanPage>
               style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.ink),
             ),
             Text(
-              'Barcode first • reviewed name if matched',
+              'Fast barcode first • OCR only when needed',
               style: TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
@@ -234,7 +240,7 @@ class _ProductScanPageState extends State<ProductScanPage>
               borderRadius: BorderRadius.circular(14),
             ),
             child: Text(
-              '${_products.length} reviewed products available for instant matching',
+              '${_products.length} registered products ready for local matching',
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -333,7 +339,7 @@ class _ProductScanPageState extends State<ProductScanPage>
                         right: 0,
                         bottom: 14,
                         child: Text(
-                          'Keep the main label inside the box • tap label to focus',
+                          'Keep barcode or main label inside the box • tap to focus',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.white,
@@ -381,18 +387,7 @@ class _ProductScanPageState extends State<ProductScanPage>
           children: [
             Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEAF8F0),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: AppTheme.success,
-                  ),
-                ),
+                _MatchPhoto(path: product.localPhotoPath),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -426,7 +421,9 @@ class _ProductScanPageState extends State<ProductScanPage>
                 Expanded(
                   child: _ValueBox(
                     label: 'SELLING PRICE',
-                    value: '${product.sellingPrice.toStringAsFixed(2)} ETB',
+                    value: product.sellingPrice <= 0
+                        ? 'Not set'
+                        : '${product.sellingPrice.toStringAsFixed(2)} ETB',
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -447,6 +444,45 @@ class _ProductScanPageState extends State<ProductScanPage>
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MatchPhoto extends StatelessWidget {
+  const _MatchPhoto({required this.path});
+
+  final String? path;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = path?.trim();
+    final exists = value?.isNotEmpty == true && File(value!).existsSync();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        width: 72,
+        height: 72,
+        child: exists
+            ? Image.file(
+                File(value!),
+                fit: BoxFit.cover,
+                cacheWidth: 240,
+                errorBuilder: (_, _, _) => _placeholder(),
+              )
+            : _placeholder(),
+      ),
+    );
+  }
+
+  Widget _placeholder() {
+    return Container(
+      color: const Color(0xFFEAF8F0),
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.inventory_2_outlined,
+        color: AppTheme.success,
+        size: 30,
       ),
     );
   }
