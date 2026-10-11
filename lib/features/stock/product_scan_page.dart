@@ -57,9 +57,19 @@ class _ProductScanPageState extends State<ProductScanPage>
   Future<void> _loadCatalog() async {
     final cached = await _catalog.loadCached(widget.branchId);
     if (mounted && cached.isNotEmpty) setState(() => _products = cached);
-    _catalogSub = _catalog.watchProducts(widget.branchId).listen((products) {
-      if (mounted) setState(() => _products = products);
-    });
+    _catalogSub = _catalog.watchProducts(widget.branchId).listen(
+      (products) {
+        if (mounted) setState(() => _products = products);
+      },
+      onError: (_) {
+        if (mounted && _products.isEmpty) {
+          setState(() {
+            _message =
+                'Product list could not sync yet. Connect once and try again.';
+          });
+        }
+      },
+    );
   }
 
   Future<void> _initCamera() async {
@@ -73,13 +83,16 @@ class _ProductScanPageState extends State<ProductScanPage>
       );
       final controller = CameraController(
         back,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
       try {
-        await controller.setJpegImageQuality(80);
+        await controller.setJpegImageQuality(86);
+      } catch (_) {}
+      try {
+        await controller.setFlashMode(FlashMode.off);
       } catch (_) {}
       if (!mounted) {
         await controller.dispose();
@@ -93,6 +106,18 @@ class _ProductScanPageState extends State<ProductScanPage>
     } finally {
       if (mounted) setState(() => _cameraLoading = false);
     }
+  }
+
+  Future<void> _focusCamera(Offset position, Size size) async {
+    final camera = _camera;
+    if (camera == null || !camera.value.isInitialized) return;
+    final x = (position.dx / size.width).clamp(0.0, 1.0).toDouble();
+    final y = (position.dy / size.height).clamp(0.0, 1.0).toDouble();
+    final point = Offset(x, y);
+    try {
+      await camera.setFocusPoint(point);
+      await camera.setExposurePoint(point);
+    } catch (_) {}
   }
 
   Future<void> _scan() async {
@@ -151,9 +176,16 @@ class _ProductScanPageState extends State<ProductScanPage>
         _barcode = barcode;
         _detectedName = detectedName;
         _match = match;
-        _message = match == null
-            ? 'No confident match. Ask the owner to review/register this product.'
-            : null;
+        if (_products.isEmpty) {
+          _message =
+              'No reviewed products are available yet. Review products in Stock Review first.';
+        } else if (match == null) {
+          _message = detectedName?.isNotEmpty == true
+              ? 'Label detected, but no safe catalog match. Ask the owner to review this product.'
+              : 'No confident match. Ask the owner to review/register this product.';
+        } else {
+          _message = null;
+        }
       });
     } catch (_) {
       if (mounted) setState(() => _message = 'Could not scan. Try again.');
@@ -186,7 +218,7 @@ class _ProductScanPageState extends State<ProductScanPage>
               style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.ink),
             ),
             Text(
-              'Barcode first • label match if needed',
+              'Barcode first • reviewed name if matched',
               style: TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
@@ -232,7 +264,7 @@ class _ProductScanPageState extends State<ProductScanPage>
             Text(
               [
                 if (_barcode?.isNotEmpty == true) 'Barcode: $_barcode',
-                if (_detectedName?.isNotEmpty == true) 'Label: $_detectedName',
+                if (_detectedName?.isNotEmpty == true) 'OCR: $_detectedName',
               ].join(' • '),
               style: const TextStyle(fontSize: 11, color: AppTheme.mutedInk),
               textAlign: TextAlign.center,
@@ -272,7 +304,55 @@ class _ProductScanPageState extends State<ProductScanPage>
         children: [
           AspectRatio(
             aspectRatio: camera.value.aspectRatio,
-            child: CameraPreview(camera),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final size = Size(constraints.maxWidth, constraints.maxHeight);
+                return GestureDetector(
+                  onTapDown: (details) =>
+                      _focusCamera(details.localPosition, size),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CameraPreview(camera),
+                      Align(
+                        alignment: Alignment.center,
+                        child: Container(
+                          width: constraints.maxWidth * 0.78,
+                          height: constraints.maxHeight * 0.42,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 14,
+                        child: Text(
+                          'Keep the main label inside the box • tap label to focus',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            shadows: [
+                              Shadow(
+                                blurRadius: 8,
+                                color: Colors.black.withValues(alpha: 0.75),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(12),
@@ -361,8 +441,8 @@ class _ProductScanPageState extends State<ProductScanPage>
             const SizedBox(height: 10),
             Text(
               match.source == 'barcode'
-                  ? 'Matched instantly by barcode.'
-                  : 'Matched from the main product name (${(match.confidence * 100).round()}% confidence).',
+                  ? 'Matched instantly by barcode. Official reviewed spelling used.'
+                  : 'Matched to the reviewed product name (${(match.confidence * 100).round()}% confidence).',
               style: const TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
