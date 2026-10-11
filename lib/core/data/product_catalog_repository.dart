@@ -111,12 +111,12 @@ class ProductCatalogRepository {
 
     for (final product in products) {
       final candidate = product.normalizedName.isNotEmpty
-          ? product.normalizedName
+          ? normalizeName(product.normalizedName)
           : normalizeName(product.name);
       if (candidate == queryName) {
         return ProductMatch(
           product: product,
-          confidence: 0.99,
+          confidence: 0.995,
           source: 'name',
         );
       }
@@ -126,7 +126,7 @@ class ProductCatalogRepository {
     var bestScore = 0.0;
     for (final product in products) {
       final candidate = product.normalizedName.isNotEmpty
-          ? product.normalizedName
+          ? normalizeName(product.normalizedName)
           : normalizeName(product.name);
       if (candidate.isEmpty) continue;
       final score = _nameSimilarity(queryName, candidate);
@@ -136,7 +136,9 @@ class ProductCatalogRepository {
       }
     }
 
-    if (best == null || bestScore < 0.64) return null;
+    // Keep automatic matching conservative. Below this threshold the UI should
+    // ask for review instead of silently linking two similar products.
+    if (best == null || bestScore < 0.74) return null;
     return ProductMatch(
       product: best,
       confidence: bestScore,
@@ -145,35 +147,126 @@ class ProductCatalogRepository {
   }
 
   double _nameSimilarity(String a, String b) {
+    if (a == b) return 1;
+
+    var containmentScore = 0.0;
     if (a.contains(b) || b.contains(a)) {
       final shorter = a.length < b.length ? a.length : b.length;
       final longer = a.length > b.length ? a.length : b.length;
-      if (longer > 0) return 0.82 + (shorter / longer) * 0.15;
+      if (longer > 0) {
+        containmentScore = 0.80 + (shorter / longer) * 0.18;
+      }
     }
 
-    final aTokens = a.split(' ').where((token) => token.length > 1).toSet();
-    final bTokens = b.split(' ').where((token) => token.length > 1).toSet();
-    if (aTokens.isEmpty || bTokens.isEmpty) return 0;
-    final intersection = aTokens.intersection(bTokens).length;
-    final union = aTokens.union(bTokens).length;
-    if (union == 0) return 0;
-    final jaccard = intersection / union;
+    final charScore = _stringSimilarity(a, b);
+    final tokenScore = _softTokenSimilarity(a, b);
+    final firstWordScore = _firstWordSimilarity(a, b);
 
-    var prefixBonus = 0.0;
-    final aFirst = aTokens.first;
-    final bFirst = bTokens.first;
-    if (aFirst == bFirst || aFirst.startsWith(bFirst) || bFirst.startsWith(aFirst)) {
-      prefixBonus = 0.12;
-    }
-    final score = jaccard * 0.88 + prefixBonus;
+    var score = charScore * 0.42 + tokenScore * 0.48 + firstWordScore * 0.10;
+    if (containmentScore > score) score = containmentScore;
     return score > 1 ? 1 : score;
   }
 
-  static String normalizeName(String input) => input
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  double _softTokenSimilarity(String a, String b) {
+    final aTokens = a.split(' ').where((token) => token.length > 1).toList();
+    final bTokens = b.split(' ').where((token) => token.length > 1).toList();
+    if (aTokens.isEmpty || bTokens.isEmpty) return 0;
+
+    var weightedMatches = 0.0;
+    var totalWeight = 0.0;
+    final used = <int>{};
+
+    for (final token in aTokens) {
+      final weight = token.length >= 6 ? 1.35 : token.length >= 4 ? 1.0 : 0.72;
+      totalWeight += weight;
+
+      var best = 0.0;
+      var bestIndex = -1;
+      for (var i = 0; i < bTokens.length; i++) {
+        if (used.contains(i)) continue;
+        final similarity = _stringSimilarity(token, bTokens[i]);
+        if (similarity > best) {
+          best = similarity;
+          bestIndex = i;
+        }
+      }
+
+      if (best >= 0.58) {
+        weightedMatches += best * weight;
+        if (bestIndex >= 0) used.add(bestIndex);
+      }
+    }
+
+    if (totalWeight == 0) return 0;
+    final forward = weightedMatches / totalWeight;
+
+    // Penalize cases where one short OCR phrase happens to match only a small
+    // piece of a much longer product name.
+    final lengthBalance =
+        (aTokens.length < bTokens.length ? aTokens.length : bTokens.length) /
+            (aTokens.length > bTokens.length ? aTokens.length : bTokens.length);
+    return forward * (0.82 + lengthBalance * 0.18);
+  }
+
+  double _firstWordSimilarity(String a, String b) {
+    final aFirst = a.split(' ').firstWhere((word) => word.isNotEmpty, orElse: () => '');
+    final bFirst = b.split(' ').firstWhere((word) => word.isNotEmpty, orElse: () => '');
+    if (aFirst.isEmpty || bFirst.isEmpty) return 0;
+    return _stringSimilarity(aFirst, bFirst);
+  }
+
+  double _stringSimilarity(String a, String b) {
+    if (a == b) return 1;
+    if (a.isEmpty || b.isEmpty) return 0;
+    final distance = _levenshtein(a, b);
+    final longest = a.length > b.length ? a.length : b.length;
+    if (longest == 0) return 1;
+    final score = 1 - (distance / longest);
+    return score < 0 ? 0 : score;
+  }
+
+  int _levenshtein(String a, String b) {
+    if (a == b) return 0;
+    if (a.isEmpty) return b.length;
+    if (b.isEmpty) return a.length;
+
+    var previous = List<int>.generate(b.length + 1, (index) => index);
+    for (var i = 1; i <= a.length; i++) {
+      final current = List<int>.filled(b.length + 1, 0);
+      current[0] = i;
+      for (var j = 1; j <= b.length; j++) {
+        final substitutionCost = a.codeUnitAt(i - 1) == b.codeUnitAt(j - 1) ? 0 : 1;
+        final insertion = current[j - 1] + 1;
+        final deletion = previous[j] + 1;
+        final substitution = previous[j - 1] + substitutionCost;
+        var value = insertion < deletion ? insertion : deletion;
+        if (substitution < value) value = substitution;
+        current[j] = value;
+      }
+      previous = current;
+    }
+    return previous[b.length];
+  }
+
+  static String normalizeName(String input) {
+    var value = input.toLowerCase();
+    const replacements = <String, String>{
+      'á': 'a', 'à': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a',
+      'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+      'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
+      'ó': 'o', 'ò': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
+      'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
+      'ç': 'c', 'ñ': 'n', 'ý': 'y', 'ÿ': 'y',
+      'æ': 'ae', 'œ': 'oe',
+    };
+    replacements.forEach((from, to) {
+      value = value.replaceAll(from, to);
+    });
+    return value
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
 
   static String normalizeBarcode(String input) =>
       input.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
