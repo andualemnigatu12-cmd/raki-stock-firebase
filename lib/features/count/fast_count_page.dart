@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/data/inventory_repository.dart';
+import '../../core/data/product_catalog_repository.dart';
 import '../../core/ocr/ocr_service.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -34,6 +35,7 @@ class FastCountPage extends StatefulWidget {
 class _FastCountPageState extends State<FastCountPage>
     with WidgetsBindingObserver {
   final _repo = InventoryRepository();
+  final _catalog = ProductCatalogRepository();
   final _uuid = const Uuid();
   final _qty = TextEditingController();
   final _qtyFocus = FocusNode();
@@ -41,7 +43,10 @@ class _FastCountPageState extends State<FastCountPage>
   final _barcodeScanner = ml_barcode.BarcodeScanner();
 
   CameraController? _camera;
+  StreamSubscription<List<ProductRecord>>? _catalogSub;
+  List<ProductRecord> _products = const [];
   Future<_CaptureAnalysis>? _analysisFuture;
+  ProductMatch? _catalogMatch;
   String? _photoPath;
   String? _detectedName;
   String? _primaryText;
@@ -58,7 +63,18 @@ class _FastCountPageState extends State<FastCountPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_loadCatalog());
     unawaited(_initCamera());
+  }
+
+  Future<void> _loadCatalog() async {
+    final cached = await _catalog.loadCached(widget.branchId);
+    if (mounted && cached.isNotEmpty) {
+      setState(() => _products = cached);
+    }
+    _catalogSub = _catalog.watchProducts(widget.branchId).listen((products) {
+      if (mounted) setState(() => _products = products);
+    });
   }
 
   @override
@@ -76,6 +92,7 @@ class _FastCountPageState extends State<FastCountPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_catalogSub?.cancel());
     _qty.dispose();
     _qtyFocus.dispose();
     final camera = _camera;
@@ -101,15 +118,15 @@ class _FastCountPageState extends State<FastCountPage>
       );
       final controller = CameraController(
         back,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
       try {
-        await controller.setJpegImageQuality(82);
+        await controller.setJpegImageQuality(86);
       } catch (_) {
-        // Not every Android camera implementation exposes JPEG quality control.
+        // Some Android camera implementations do not expose JPEG quality.
       }
       try {
         await controller.setFlashMode(FlashMode.off);
@@ -127,6 +144,20 @@ class _FastCountPageState extends State<FastCountPage>
       }
     } finally {
       if (mounted) setState(() => _cameraLoading = false);
+    }
+  }
+
+  Future<void> _focusCamera(Offset position, Size size) async {
+    final camera = _camera;
+    if (camera == null || !camera.value.isInitialized) return;
+    final x = (position.dx / size.width).clamp(0.0, 1.0).toDouble();
+    final y = (position.dy / size.height).clamp(0.0, 1.0).toDouble();
+    final point = Offset(x, y);
+    try {
+      await camera.setFocusPoint(point);
+      await camera.setExposurePoint(point);
+    } catch (_) {
+      // Tap-to-focus is optional on devices that do not support it.
     }
   }
 
@@ -155,6 +186,7 @@ class _FastCountPageState extends State<FastCountPage>
         _primaryText = null;
         _rawOcr = null;
         _barcode = null;
+        _catalogMatch = null;
         _ocrReading = true;
       });
       _qty.clear();
@@ -170,6 +202,7 @@ class _FastCountPageState extends State<FastCountPage>
             _primaryText = result.ocr?.primaryText;
             _rawOcr = result.ocr?.rawText;
             _barcode = result.barcode;
+            _catalogMatch = result.catalogMatch;
           });
         }).catchError((_) {
           if (mounted && token == _photoToken) {
@@ -199,11 +232,52 @@ class _FastCountPageState extends State<FastCountPage>
       }
     } catch (_) {}
 
+    // Exact barcode matches are the fastest and most reliable result. When the
+    // product already exists we skip OCR completely and use the reviewed name.
+    final barcodeMatch = _catalog.findBestMatch(_products, barcode: barcode);
+    if (barcodeMatch != null && barcodeMatch.source == 'barcode') {
+      return _CaptureAnalysis(
+        ocr: OcrResult(
+          rawText: null,
+          suggestedName: barcodeMatch.product.name,
+          primaryText: barcodeMatch.product.name,
+          confidence: 1,
+        ),
+        barcode: barcode,
+        catalogMatch: barcodeMatch,
+      );
+    }
+
     OcrResult? ocr;
     try {
       ocr = await _ocr.readProduct(path);
     } catch (_) {}
-    return _CaptureAnalysis(ocr: ocr, barcode: barcode);
+
+    ProductMatch? nameMatch;
+    if (ocr?.suggestedName?.trim().isNotEmpty == true) {
+      nameMatch = _catalog.findBestMatch(
+        _products,
+        barcode: barcode,
+        ocrName: ocr!.suggestedName,
+      );
+    }
+
+    // Only replace OCR spelling when the existing catalog match is strong.
+    // Lower-confidence cases stay as OCR suggestions for owner review.
+    if (nameMatch != null && nameMatch.confidence >= 0.82 && ocr != null) {
+      ocr = OcrResult(
+        rawText: ocr.rawText,
+        suggestedName: nameMatch.product.name,
+        primaryText: ocr.primaryText,
+        confidence: nameMatch.confidence,
+      );
+    }
+
+    return _CaptureAnalysis(
+      ocr: ocr,
+      barcode: barcode,
+      catalogMatch: nameMatch,
+    );
   }
 
   Future<String> _makeDurable(String sourcePath, String itemId) async {
@@ -287,13 +361,16 @@ class _FastCountPageState extends State<FastCountPage>
         _primaryText = null;
         _rawOcr = null;
         _barcode = null;
+        _catalogMatch = null;
         _ocrReading = false;
         _qty.clear();
         _message = 'Saved $tempCode. Camera is ready for the next product.';
       });
       FocusManager.instance.primaryFocus?.unfocus();
     } catch (_) {
-      if (mounted) setState(() => _message = 'Could not save this product. Try again.');
+      if (mounted) {
+        setState(() => _message = 'Could not save this product. Try again.');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -308,6 +385,7 @@ class _FastCountPageState extends State<FastCountPage>
       _primaryText = null;
       _rawOcr = null;
       _barcode = null;
+      _catalogMatch = null;
       _ocrReading = false;
       _qty.clear();
       _message = null;
@@ -333,7 +411,7 @@ class _FastCountPageState extends State<FastCountPage>
               style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.ink),
             ),
             Text(
-              'Camera stays open • OCR runs in background',
+              'Barcode first • improved full-label OCR',
               style: TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
@@ -483,7 +561,50 @@ class _FastCountPageState extends State<FastCountPage>
         children: [
           AspectRatio(
             aspectRatio: camera.value.aspectRatio,
-            child: CameraPreview(camera),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapDown: (details) => _focusCamera(
+                    details.localPosition,
+                    constraints.biggest,
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CameraPreview(camera),
+                      Center(
+                        child: Container(
+                          width: constraints.maxWidth * 0.76,
+                          height: constraints.maxHeight * 0.58,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white, width: 2),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                      ),
+                      const Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 12,
+                        child: Text(
+                          'Keep the main label inside the frame • tap label to focus',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            shadows: [
+                              Shadow(blurRadius: 5, color: Colors.black),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(12),
@@ -506,6 +627,7 @@ class _FastCountPageState extends State<FastCountPage>
 
   Widget _capturedCard() {
     final detected = _detectedName?.trim().isNotEmpty == true;
+    final matched = _catalogMatch != null && _catalogMatch!.confidence >= 0.82;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -535,14 +657,24 @@ class _FastCountPageState extends State<FastCountPage>
                             : detected
                                 ? _detectedName!
                                 : 'Name needs review',
-                        maxLines: 2,
+                        maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
                           color: AppTheme.ink,
                         ),
                       ),
-                      if (_primaryText?.isNotEmpty == true) ...[
+                      if (matched) ...[
+                        const SizedBox(height: 3),
+                        const Text(
+                          'MATCHED TO REVIEWED PRODUCT',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: AppTheme.success,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ] else if (_primaryText?.isNotEmpty == true) ...[
                         const SizedBox(height: 3),
                         Text(
                           'Main text: $_primaryText',
@@ -594,9 +726,15 @@ class _FastCountPageState extends State<FastCountPage>
 }
 
 class _CaptureAnalysis {
-  const _CaptureAnalysis({required this.ocr, required this.barcode});
+  const _CaptureAnalysis({
+    required this.ocr,
+    required this.barcode,
+    required this.catalogMatch,
+  });
+
   final OcrResult? ocr;
   final String? barcode;
+  final ProductMatch? catalogMatch;
 }
 
 class _MiniMetric extends StatelessWidget {
