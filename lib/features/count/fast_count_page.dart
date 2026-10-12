@@ -57,6 +57,7 @@ class _FastCountPageState extends State<FastCountPage>
   bool _ocrReading = false;
   bool _saving = false;
   int _photoToken = 0;
+  int _writeFailures = 0;
   String? _message;
 
   @override
@@ -116,8 +117,6 @@ class _FastCountPageState extends State<FastCountPage>
         (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-      // Fast Count is a shop-speed workflow. Medium resolution is enough for
-      // barcode + label OCR and reduces shutter, file-copy, memory and ML time.
       final controller = CameraController(
         back,
         ResolutionPreset.medium,
@@ -127,9 +126,7 @@ class _FastCountPageState extends State<FastCountPage>
       await controller.initialize();
       try {
         await controller.setJpegImageQuality(80);
-      } catch (_) {
-        // Some Android camera implementations do not expose JPEG quality.
-      }
+      } catch (_) {}
       try {
         await controller.setFlashMode(FlashMode.off);
       } catch (_) {}
@@ -158,9 +155,7 @@ class _FastCountPageState extends State<FastCountPage>
     try {
       await camera.setFocusPoint(point);
       await camera.setExposurePoint(point);
-    } catch (_) {
-      // Tap-to-focus is optional on devices that do not support it.
-    }
+    } catch (_) {}
   }
 
   Future<void> _capture() async {
@@ -234,8 +229,6 @@ class _FastCountPageState extends State<FastCountPage>
       }
     } catch (_) {}
 
-    // Exact barcode matches are the fastest and most reliable result. When the
-    // product already exists we skip OCR completely and use the reviewed name.
     final barcodeMatch = _catalog.findBestMatch(_products, barcode: barcode);
     if (barcodeMatch != null && barcodeMatch.source == 'barcode') {
       return _CaptureAnalysis(
@@ -266,8 +259,6 @@ class _FastCountPageState extends State<FastCountPage>
       );
     }
 
-    // Only replace OCR spelling when the existing catalog match is strong.
-    // Lower-confidence cases stay as OCR suggestions for owner review.
     if (nameMatch != null && nameMatch.confidence >= 0.82 && ocr != null) {
       ocr = OcrResult(
         rawText: ocr.rawText,
@@ -291,8 +282,23 @@ class _FastCountPageState extends State<FastCountPage>
     );
     await dir.create(recursive: true);
     final target = p.join(dir.path, '$itemId.jpg');
-    await File(sourcePath).copy(target);
+
+    final source = File(sourcePath);
+    try {
+      await source.rename(target);
+    } catch (_) {
+      await source.copy(target);
+    }
     return target;
+  }
+
+  void _reportWriteFailure() {
+    if (!mounted) return;
+    _writeFailures++;
+    setState(() {
+      _message =
+          '$_writeFailures product${_writeFailures == 1 ? '' : 's'} could not sync. Keep the app open and check the connection.';
+    });
   }
 
   Future<void> _saveAndNext() async {
@@ -338,7 +344,7 @@ class _FastCountPageState extends State<FastCountPage>
               rawOcr: currentRaw,
               barcode: currentBarcode,
             )
-            .catchError((_) {}),
+            .catchError((_) => _reportWriteFailure()),
       );
 
       if (analysis != null) {
@@ -368,7 +374,7 @@ class _FastCountPageState extends State<FastCountPage>
         _catalogMatch = null;
         _ocrReading = false;
         _qty.clear();
-        _message = 'Saved $tempCode. Camera is ready for the next product.';
+        _message = 'Saved locally $tempCode. Ready for the next product.';
       });
       FocusManager.instance.primaryFocus?.unfocus();
     } catch (_) {
@@ -496,13 +502,14 @@ class _FastCountPageState extends State<FastCountPage>
                   final title = name?.isNotEmpty == true
                       ? name!
                       : (data['tempCode'] as String? ?? 'Unnamed product');
+                  final syncing = doc.metadata.hasPendingWrites;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Card(
                       child: ListTile(
                         dense: true,
-                        leading: const Icon(
-                          Icons.inventory_2_outlined,
+                        leading: Icon(
+                          syncing ? Icons.sync_rounded : Icons.inventory_2_outlined,
                           color: AppTheme.primary,
                         ),
                         title: Text(
@@ -512,11 +519,13 @@ class _FastCountPageState extends State<FastCountPage>
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         subtitle: Text(
-                          data['reviewState'] == 'added'
-                              ? 'ADDED TO STOCK'
-                              : name?.isNotEmpty == true
-                                  ? 'AUTO NAME • REVIEW LATER'
-                                  : 'NEEDS REVIEW',
+                          syncing
+                              ? 'SYNCING SAFELY'
+                              : data['reviewState'] == 'added'
+                                  ? 'ADDED TO STOCK'
+                                  : name?.isNotEmpty == true
+                                      ? 'AUTO NAME • REVIEW LATER'
+                                      : 'NEEDS REVIEW',
                         ),
                         trailing: Text(
                           '×${data['quantity'] ?? 0}',
