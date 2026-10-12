@@ -34,7 +34,22 @@ jobs:
           flutter create . --platforms=android --org=com.rakishop
           rm -f test/widget_test.dart
 
-      - name: Configure Firebase and release shrinker
+      - name: Restore stable release signing key
+        env:
+          RAKI_KEYSTORE_BASE64: ${{ secrets.RAKI_KEYSTORE_BASE64 }}
+          RAKI_KEYSTORE_PASSWORD: ${{ secrets.RAKI_KEYSTORE_PASSWORD }}
+          RAKI_KEY_ALIAS: ${{ secrets.RAKI_KEY_ALIAS }}
+        run: |
+          test -n "$RAKI_KEYSTORE_BASE64" || { echo "RAKI_KEYSTORE_BASE64 is missing"; exit 1; }
+          test -n "$RAKI_KEYSTORE_PASSWORD" || { echo "RAKI_KEYSTORE_PASSWORD is missing"; exit 1; }
+          test -n "$RAKI_KEY_ALIAS" || { echo "RAKI_KEY_ALIAS is missing"; exit 1; }
+          printf '%s' "$RAKI_KEYSTORE_BASE64" | base64 --decode > android/raki-stock-release.jks
+          keytool -list \
+            -keystore android/raki-stock-release.jks \
+            -storepass "$RAKI_KEYSTORE_PASSWORD" \
+            -alias "$RAKI_KEY_ALIAS" >/dev/null
+
+      - name: Configure Firebase, signing and release shrinker
         run: |
           if [ -f google-services.json ]; then
             cp google-services.json android/app/google-services.json
@@ -69,10 +84,32 @@ jobs:
           # camera 0.12.x targets Android SDK 24+.
           text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
 
-          signing_marker = 'signingConfig = signingConfigs.getByName("debug")'
-          proguard = signing_marker + '''\n            proguardFiles(\n                getDefaultProguardFile("proguard-android-optimize.txt"),\n                "proguard-rules.pro",\n            )'''
+          build_types_marker = '    buildTypes {'
+          release_signing = '''    signingConfigs {
+        create("release") {
+            storeFile = file("../raki-stock-release.jks")
+            storePassword = System.getenv("RAKI_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("RAKI_KEY_ALIAS")
+            keyPassword = System.getenv("RAKI_KEY_PASSWORD")
+        }
+    }
+
+'''
+          if 'create("release")' not in text:
+              if build_types_marker not in text:
+                  raise SystemExit('Could not locate buildTypes in Android Gradle file')
+              text = text.replace(build_types_marker, release_signing + build_types_marker, 1)
+
+          debug_signing = 'signingConfig = signingConfigs.getByName("debug")'
+          release_signing_line = 'signingConfig = signingConfigs.getByName("release")'
+          if debug_signing in text:
+              text = text.replace(debug_signing, release_signing_line, 1)
+          elif release_signing_line not in text:
+              raise SystemExit('Could not locate release signingConfig in Android Gradle file')
+
+          proguard = release_signing_line + '''\n            proguardFiles(\n                getDefaultProguardFile("proguard-android-optimize.txt"),\n                "proguard-rules.pro",\n            )'''
           if 'proguard-rules.pro' not in text:
-              text = text.replace(signing_marker, proguard)
+              text = text.replace(release_signing_line, proguard, 1)
           app.write_text(text)
           PY
 
@@ -83,7 +120,13 @@ jobs:
         run: flutter analyze --no-fatal-infos
 
       - name: Build optimized release APKs
-        run: flutter build apk --release --split-per-abi
+        env:
+          RAKI_KEYSTORE_PASSWORD: ${{ secrets.RAKI_KEYSTORE_PASSWORD }}
+          RAKI_KEY_ALIAS: ${{ secrets.RAKI_KEY_ALIAS }}
+          RAKI_KEY_PASSWORD: ${{ secrets.RAKI_KEY_PASSWORD }}
+        run: |
+          test -n "$RAKI_KEY_PASSWORD" || { echo "RAKI_KEY_PASSWORD is missing"; exit 1; }
+          flutter build apk --release --split-per-abi
 
       - name: Prepare small APK artifacts
         run: |
