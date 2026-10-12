@@ -454,7 +454,7 @@ class StockReviewPage extends StatelessWidget {
         title: const Text('Delete product?'),
         content: Text(
           alreadyAdded
-              ? 'Delete "$name" from this count and also remove its linked product from Products?'
+              ? 'Delete "$name" from this stock count? The approved product will stay in Products.'
               : 'Delete "$name" from this stock count?',
         ),
         actions: [
@@ -475,7 +475,7 @@ class StockReviewPage extends StatelessWidget {
       await InventoryRepository().deleteCountItem(
         sessionId: sessionId,
         itemId: itemId,
-        deleteLinkedProduct: alreadyAdded,
+        deleteLinkedProduct: false,
       );
     } catch (error) {
       if (context.mounted) {
