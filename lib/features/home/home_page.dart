@@ -167,8 +167,11 @@ class _HomePageState extends State<HomePage> {
                               ),
                               onPressed: () => Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      ProductsPage(branchId: branchId),
+                                  builder: (_) => ProductsPage(
+                                    branchId: branchId,
+                                    isOwner: isOwner,
+                                    userId: user.uid,
+                                  ),
                                 ),
                               ),
                               icon: const Icon(Icons.inventory_2_outlined),
@@ -218,7 +221,11 @@ class _HomePageState extends State<HomePage> {
                         subtitle: 'Search registered products',
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => ProductsPage(branchId: branchId),
+                            builder: (_) => ProductsPage(
+                              branchId: branchId,
+                              isOwner: isOwner,
+                              userId: user.uid,
+                            ),
                           ),
                         ),
                       ),
