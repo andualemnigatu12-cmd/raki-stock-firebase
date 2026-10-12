@@ -20,6 +20,7 @@ class _ProductsPageState extends State<ProductsPage> {
   final _catalog = ProductCatalogRepository();
   final _search = TextEditingController();
   StreamSubscription<List<ProductRecord>>? _subscription;
+  Timer? _searchDebounce;
 
   List<ProductRecord> _products = const [];
   List<ProductRecord> _visible = const [];
@@ -29,7 +30,7 @@ class _ProductsPageState extends State<ProductsPage> {
   @override
   void initState() {
     super.initState();
-    _search.addListener(_applySearch);
+    _search.addListener(_queueSearch);
     unawaited(_load());
   }
 
@@ -38,7 +39,7 @@ class _ProductsPageState extends State<ProductsPage> {
     if (mounted) {
       setState(() {
         _products = cached;
-        _visible = _catalog.searchProducts(cached, _search.text, limit: 200);
+        _visible = _catalog.searchProducts(cached, _search.text, limit: 120);
         _loading = false;
       });
     }
@@ -51,7 +52,7 @@ class _ProductsPageState extends State<ProductsPage> {
           _visible = _catalog.searchProducts(
             products,
             _search.text,
-            limit: 200,
+            limit: 120,
           );
           _loading = false;
           _message = null;
@@ -68,20 +69,26 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
+  void _queueSearch() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 90), _applySearch);
+  }
+
   void _applySearch() {
     if (!mounted) return;
     setState(() {
       _visible = _catalog.searchProducts(
         _products,
         _search.text,
-        limit: 200,
+        limit: 120,
       );
     });
   }
 
   @override
   void dispose() {
-    _search.removeListener(_applySearch);
+    _searchDebounce?.cancel();
+    _search.removeListener(_queueSearch);
     _search.dispose();
     unawaited(_subscription?.cancel());
     super.dispose();
@@ -312,14 +319,13 @@ class _ProductPhoto extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = path?.trim();
-    final exists = value?.isNotEmpty == true && File(value!).existsSync();
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: SizedBox(
         width: 82,
         height: 82,
-        child: exists
+        child: value?.isNotEmpty == true
             ? Image.file(
                 File(value!),
                 fit: BoxFit.cover,
