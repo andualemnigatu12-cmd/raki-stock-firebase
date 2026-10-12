@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../count/fast_count_page.dart';
 import '../stock/product_scan_page.dart';
 import '../stock/products_page.dart';
+import '../stock/quick_add_product_page.dart';
 import '../stock/stock_review_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -243,12 +244,15 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _ActionCard(
-                          icon: Icons.fact_check_outlined,
-                          title: 'Stock review',
-                          subtitle: 'Approve, edit or delete',
+                          icon: Icons.add_box_outlined,
+                          title: 'Quick add',
+                          subtitle: 'Register without camera',
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => StockReviewPage(branchId: branchId),
+                              builder: (_) => QuickAddProductPage(
+                                branchId: branchId,
+                                userId: user.uid,
+                              ),
                             ),
                           ),
                         ),
@@ -256,6 +260,19 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ],
                 ),
+                if (isOwner) ...[
+                  const SizedBox(height: 12),
+                  _ActionCard(
+                    icon: Icons.fact_check_outlined,
+                    title: 'Stock review',
+                    subtitle: 'Approve, correct and clean captured products',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => StockReviewPage(branchId: branchId),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _repo.watchRecentSessions(branchId),
