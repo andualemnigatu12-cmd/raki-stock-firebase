@@ -78,3 +78,5 @@ jobs:
           git add lib/features/stock/stock_review_page.dart lib/core/data/inventory_repository.dart
           git commit -m "Protect master products when deleting count items"
           git push origin HEAD:main
+
+# This workflow is intentionally one-shot and exists only to apply the V1 safety patch.
