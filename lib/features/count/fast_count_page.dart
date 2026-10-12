@@ -283,12 +283,10 @@ class _FastCountPageState extends State<FastCountPage>
     await dir.create(recursive: true);
     final target = p.join(dir.path, '$itemId.jpg');
 
-    final source = File(sourcePath);
-    try {
-      await source.rename(target);
-    } catch (_) {
-      await source.copy(target);
-    }
+    // Copy instead of moving the camera file. OCR/barcode analysis can still be
+    // reading sourcePath while the employee has already entered quantity and
+    // pressed Save. Moving it would make that background recognition fail.
+    await File(sourcePath).copy(target);
     return target;
   }
 
