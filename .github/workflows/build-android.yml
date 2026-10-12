@@ -81,20 +81,20 @@ jobs:
           if 'com.google.gms.google-services' not in text:
               text = text.replace(plugin_marker, plugin_addition)
 
-          # camera 0.12.x targets Android SDK 24+.
           text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
 
           build_types_marker = '    buildTypes {'
-          release_signing = '''    signingConfigs {
-        create("release") {
-            storeFile = file("../raki-stock-release.jks")
-            storePassword = System.getenv("RAKI_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("RAKI_KEY_ALIAS")
-            keyPassword = System.getenv("RAKI_KEY_PASSWORD")
-        }
-    }
-
-'''
+          release_signing = '\n'.join([
+              '    signingConfigs {',
+              '        create("release") {',
+              '            storeFile = file("../raki-stock-release.jks")',
+              '            storePassword = System.getenv("RAKI_KEYSTORE_PASSWORD")',
+              '            keyAlias = System.getenv("RAKI_KEY_ALIAS")',
+              '            keyPassword = System.getenv("RAKI_KEY_PASSWORD")',
+              '        }',
+              '    }',
+              '',
+          ])
           if 'create("release")' not in text:
               if build_types_marker not in text:
                   raise SystemExit('Could not locate buildTypes in Android Gradle file')
@@ -107,7 +107,7 @@ jobs:
           elif release_signing_line not in text:
               raise SystemExit('Could not locate release signingConfig in Android Gradle file')
 
-          proguard = release_signing_line + '''\n            proguardFiles(\n                getDefaultProguardFile("proguard-android-optimize.txt"),\n                "proguard-rules.pro",\n            )'''
+          proguard = release_signing_line + '\n            proguardFiles(\n                getDefaultProguardFile("proguard-android-optimize.txt"),\n                "proguard-rules.pro",\n            )'
           if 'proguard-rules.pro' not in text:
               text = text.replace(release_signing_line, proguard, 1)
           app.write_text(text)
