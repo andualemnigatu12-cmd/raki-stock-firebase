@@ -82,9 +82,6 @@ class _ProductScanPageState extends State<ProductScanPage>
         (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-      // Scanning is a lookup operation, not a registration photo. Medium
-      // resolution is much faster for ML Kit while still being enough for
-      // barcode and label matching on normal retail packaging.
       final controller = CameraController(
         back,
         ResolutionPreset.medium,
@@ -93,7 +90,7 @@ class _ProductScanPageState extends State<ProductScanPage>
       );
       await controller.initialize();
       try {
-        await controller.setJpegImageQuality(78);
+        await controller.setJpegImageQuality(76);
       } catch (_) {}
       try {
         await controller.setFlashMode(FlashMode.off);
@@ -141,13 +138,14 @@ class _ProductScanPageState extends State<ProductScanPage>
       _message = null;
     });
 
+    XFile? image;
     try {
-      final image = await camera.takePicture();
+      image = await camera.takePicture();
       String? barcode;
       try {
-        final codes = await _barcodeScanner.processImage(
-          ml_barcode.InputImage.fromFilePath(image.path),
-        );
+        final codes = await _barcodeScanner
+            .processImage(ml_barcode.InputImage.fromFilePath(image.path))
+            .timeout(const Duration(milliseconds: 1800));
         for (final code in codes) {
           final value = code.rawValue?.trim();
           if (value != null && value.isNotEmpty) {
@@ -157,8 +155,7 @@ class _ProductScanPageState extends State<ProductScanPage>
         }
       } catch (_) {}
 
-      // Barcode and exact-name lookups use the in-memory product indexes, so
-      // there is no Firestore request in the matching path.
+      // Barcode uses the in-memory index and never waits for Firestore.
       ProductMatch? match = _catalog.findBestMatch(
         _products,
         barcode: barcode,
@@ -167,7 +164,9 @@ class _ProductScanPageState extends State<ProductScanPage>
       String? detectedName;
       if (match == null) {
         try {
-          final ocr = await _ocr.readProduct(image.path);
+          final ocr = await _ocr
+              .readProduct(image.path)
+              .timeout(const Duration(milliseconds: 3600));
           detectedName = ocr.suggestedName;
           match = _catalog.findBestMatch(
             _products,
@@ -196,6 +195,9 @@ class _ProductScanPageState extends State<ProductScanPage>
     } catch (_) {
       if (mounted) setState(() => _message = 'Could not scan. Try again.');
     } finally {
+      if (image != null) {
+        unawaited(File(image.path).delete().catchError((_) => File(image!.path)));
+      }
       if (mounted) setState(() => _scanning = false);
     }
   }
@@ -224,7 +226,7 @@ class _ProductScanPageState extends State<ProductScanPage>
               style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.ink),
             ),
             Text(
-              'Fast barcode first • OCR only when needed',
+              'Instant barcode • OCR only when needed',
               style: TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
@@ -439,7 +441,9 @@ class _ProductScanPageState extends State<ProductScanPage>
             Text(
               match.source == 'barcode'
                   ? 'Matched instantly by barcode. Official reviewed spelling used.'
-                  : 'Matched to the reviewed product name (${(match.confidence * 100).round()}% confidence).',
+                  : match.source == 'learned_alias'
+                      ? 'Matched from an OCR correction the owner taught this product.'
+                      : 'Matched to the reviewed product name (${(match.confidence * 100).round()}% confidence).',
               style: const TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
@@ -457,13 +461,12 @@ class _MatchPhoto extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = path?.trim();
-    final exists = value?.isNotEmpty == true && File(value!).existsSync();
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: SizedBox(
         width: 72,
         height: 72,
-        child: exists
+        child: value?.isNotEmpty == true
             ? Image.file(
                 File(value!),
                 fit: BoxFit.cover,
