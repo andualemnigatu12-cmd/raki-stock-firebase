@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/data/product_catalog_repository.dart';
@@ -8,9 +9,16 @@ import '../../core/theme/app_theme.dart';
 import 'product_scan_page.dart';
 
 class ProductsPage extends StatefulWidget {
-  const ProductsPage({super.key, required this.branchId});
+  const ProductsPage({
+    super.key,
+    required this.branchId,
+    this.isOwner = false,
+    this.userId,
+  });
 
   final String branchId;
+  final bool isOwner;
+  final String? userId;
 
   @override
   State<ProductsPage> createState() => _ProductsPageState();
@@ -83,6 +91,18 @@ class _ProductsPageState extends State<ProductsPage> {
         limit: 120,
       );
     });
+  }
+
+  Future<void> _editProduct(ProductRecord product) async {
+    if (!widget.isOwner || widget.userId == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _EditProductDialog(
+        branchId: widget.branchId,
+        userId: widget.userId!,
+        product: product,
+      ),
+    );
   }
 
   @override
@@ -165,6 +185,14 @@ class _ProductsPageState extends State<ProductsPage> {
                           ),
                         ),
                       ),
+                      if (widget.isOwner)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 6),
+                          child: Text(
+                            'Tap a product to edit',
+                            style: TextStyle(fontSize: 10, color: AppTheme.mutedInk),
+                          ),
+                        ),
                       TextButton.icon(
                         onPressed: () => Navigator.of(context).push(
                           MaterialPageRoute(
@@ -236,77 +264,263 @@ class _ProductsPageState extends State<ProductsPage> {
       padding: const EdgeInsets.fromLTRB(16, 2, 16, 28),
       itemCount: _visible.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, index) => _ProductCard(product: _visible[index]),
+      itemBuilder: (context, index) {
+        final product = _visible[index];
+        return _ProductCard(
+          product: product,
+          onTap: widget.isOwner ? () => _editProduct(product) : null,
+        );
+      },
     );
   }
 }
 
 class _ProductCard extends StatelessWidget {
-  const _ProductCard({required this.product});
+  const _ProductCard({required this.product, this.onTap});
 
   final ProductRecord product;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            _ProductPhoto(path: product.localPhotoPath),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.name.isEmpty ? 'Unnamed product' : product.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      color: AppTheme.ink,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _ProductPhoto(path: product.localPhotoPath),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            product.name.isEmpty ? 'Unnamed product' : product.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.ink,
+                            ),
+                          ),
+                        ),
+                        if (onTap != null)
+                          const Icon(
+                            Icons.edit_outlined,
+                            size: 18,
+                            color: AppTheme.mutedInk,
+                          ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 5),
-                  if (product.barcode?.isNotEmpty == true)
-                    Text(
-                      'Barcode ${product.barcode}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: AppTheme.mutedInk,
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _MiniValue(
-                          label: 'PRICE',
-                          value: product.sellingPrice <= 0
-                              ? 'Not set'
-                              : '${product.sellingPrice.toStringAsFixed(2)} ETB',
+                    const SizedBox(height: 5),
+                    if (product.barcode?.isNotEmpty == true)
+                      Text(
+                        'Barcode ${product.barcode}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: AppTheme.mutedInk,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _MiniValue(
-                          label: 'STOCK',
-                          value: '${product.stockQty}',
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _MiniValue(
+                            label: 'PRICE',
+                            value: product.sellingPrice <= 0
+                                ? 'Not set'
+                                : '${product.sellingPrice.toStringAsFixed(2)} ETB',
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _MiniValue(
+                            label: 'STOCK',
+                            value: '${product.stockQty}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EditProductDialog extends StatefulWidget {
+  const _EditProductDialog({
+    required this.branchId,
+    required this.userId,
+    required this.product,
+  });
+
+  final String branchId;
+  final String userId;
+  final ProductRecord product;
+
+  @override
+  State<_EditProductDialog> createState() => _EditProductDialogState();
+}
+
+class _EditProductDialogState extends State<_EditProductDialog> {
+  late final TextEditingController _name;
+  late final TextEditingController _barcode;
+  late final TextEditingController _price;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.product.name);
+    _barcode = TextEditingController(text: widget.product.barcode ?? '');
+    _price = TextEditingController(
+      text: widget.product.sellingPrice <= 0
+          ? ''
+          : widget.product.sellingPrice.toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _barcode.dispose();
+    _price.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final name = _name.text.trim();
+    final normalizedName = ProductCatalogRepository.normalizeName(name);
+    final barcode = ProductCatalogRepository.normalizeBarcode(_barcode.text);
+    final price = double.tryParse(_price.text.trim().replaceAll(',', '.')) ?? 0;
+
+    if (name.isEmpty || normalizedName.isEmpty) {
+      setState(() => _error = 'Product name is required.');
+      return;
+    }
+    if (price < 0) {
+      setState(() => _error = 'Selling price cannot be negative.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
+    try {
+      if (barcode.isNotEmpty) {
+        final matches = await FirebaseFirestore.instance
+            .collection('products')
+            .where('branchId', isEqualTo: widget.branchId)
+            .where('barcode', isEqualTo: barcode)
+            .limit(2)
+            .get()
+            .timeout(const Duration(seconds: 3));
+        final duplicate = matches.docs.any((doc) => doc.id != widget.product.id);
+        if (duplicate) {
+          if (mounted) {
+            setState(() {
+              _saving = false;
+              _error = 'That barcode already belongs to another product.';
+            });
+          }
+          return;
+        }
+      }
+
+      await FirebaseFirestore.instance
+          .collection('products')
+          .doc(widget.product.id)
+          .set({
+        'branchId': widget.branchId,
+        'name': name,
+        'normalizedName': normalizedName,
+        'barcode': barcode.isEmpty ? null : barcode,
+        'catalogKey': barcode.isNotEmpty
+            ? 'barcode:$barcode'
+            : 'name:$normalizedName',
+        'sellingPrice': price,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': widget.userId,
+      }, SetOptions(merge: true));
+
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = 'Could not update this product. Check the connection and try again.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit product'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Product name'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _barcode,
+              decoration: const InputDecoration(labelText: 'Barcode'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _price,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Selling price'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _error!,
+                style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+              ),
+            ],
+            const SizedBox(height: 8),
+            const Text(
+              'Stock quantity is changed through stock count/review so quantity history stays controlled.',
+              style: TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? 'SAVING…' : 'SAVE'),
+        ),
+      ],
     );
   }
 }
