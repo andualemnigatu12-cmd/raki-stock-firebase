@@ -116,15 +116,17 @@ class _FastCountPageState extends State<FastCountPage>
         (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
+      // Fast Count is a shop-speed workflow. Medium resolution is enough for
+      // barcode + label OCR and reduces shutter, file-copy, memory and ML time.
       final controller = CameraController(
         back,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
       try {
-        await controller.setJpegImageQuality(86);
+        await controller.setJpegImageQuality(80);
       } catch (_) {
         // Some Android camera implementations do not expose JPEG quality.
       }
@@ -220,9 +222,9 @@ class _FastCountPageState extends State<FastCountPage>
   Future<_CaptureAnalysis> _analyzeCapture(String path) async {
     String? barcode;
     try {
-      final codes = await _barcodeScanner.processImage(
-        ml_barcode.InputImage.fromFilePath(path),
-      );
+      final codes = await _barcodeScanner
+          .processImage(ml_barcode.InputImage.fromFilePath(path))
+          .timeout(const Duration(milliseconds: 2200));
       for (final code in codes) {
         final value = code.rawValue?.trim();
         if (value != null && value.isNotEmpty) {
@@ -250,7 +252,9 @@ class _FastCountPageState extends State<FastCountPage>
 
     OcrResult? ocr;
     try {
-      ocr = await _ocr.readProduct(path);
+      ocr = await _ocr
+          .readProduct(path)
+          .timeout(const Duration(milliseconds: 4200));
     } catch (_) {}
 
     ProductMatch? nameMatch;
@@ -411,7 +415,7 @@ class _FastCountPageState extends State<FastCountPage>
               style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.ink),
             ),
             Text(
-              'Barcode first • improved full-label OCR',
+              'Fast capture • barcode first • OCR in background',
               style: TextStyle(fontSize: 11, color: AppTheme.mutedInk),
             ),
           ],
