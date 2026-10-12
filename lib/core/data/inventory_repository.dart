@@ -38,10 +38,6 @@ class InventoryRepository {
     final code =
         'CNT-${now.year.toString().substring(2)}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
 
-    // Firestore's mobile SDK keeps writes in its persistent local queue while
-    // offline. We enqueue immediately so the camera can open without waiting
-    // for a server round-trip. Count-item writes also carry branchId, so they
-    // no longer depend on this parent having finished syncing first.
     unawaited(
       _retryWrite(
         () => ref.set({
@@ -163,9 +159,9 @@ class InventoryRepository {
   /// Reviews one counted item and reconciles the product stock to the total
   /// quantity counted for that product in this session.
   ///
-  /// The OCR text that led to an owner correction is saved as an alias on the
-  /// product. Next time ML Kit makes the same stylized-font mistake, catalog
-  /// matching can resolve it immediately without another correction.
+  /// Existing products are resolved by current barcode/name before creating a
+  /// deterministic fallback ID. This means a product remains the same catalog
+  /// item even if it was originally created through Quick Add or an older app.
   Future<String> reviewItemIntoStock({
     required String branchId,
     required String sessionId,
@@ -193,17 +189,25 @@ class InventoryRepository {
     final existingLinkedId = (itemData['linkedProductId'] as String?)?.trim();
     final localPhotoPath = (itemData['localPhotoPath'] as String?)?.trim();
     final learnedAliases = _learnedOcrAliases(itemData, cleanName);
-    final productId = existingLinkedId?.isNotEmpty == true
-        ? existingLinkedId!
-        : _productId(
-            branchId: branchId,
-            normalizedName: normalizedName,
-            normalizedBarcode: normalizedBarcode,
-          );
 
-    // Sum any already-approved duplicate entries for the same product in this
-    // count, then add the quantity currently being reviewed. This preserves
-    // physical-count semantics without reading the product document itself.
+    String? existingProductId;
+    if (existingLinkedId?.isNotEmpty == true) {
+      existingProductId = existingLinkedId;
+    } else {
+      existingProductId = await _findExistingProductId(
+        branchId: branchId,
+        normalizedName: normalizedName,
+        normalizedBarcode: normalizedBarcode,
+      );
+    }
+
+    final productId = existingProductId ??
+        _productId(
+          branchId: branchId,
+          normalizedName: normalizedName,
+          normalizedBarcode: normalizedBarcode,
+        );
+
     final allItems = await sessionRef.collection('items').get();
     var sessionTotal = quantity;
     for (final doc in allItems.docs) {
@@ -282,6 +286,7 @@ class InventoryRepository {
     final snapshot = await sessionRef.collection('items').get();
     if (snapshot.docs.isEmpty) return 0;
 
+    final lookup = await _loadProductLookup(branchId);
     final totals = <String, int>{};
     for (final doc in snapshot.docs) {
       final data = doc.data();
@@ -316,11 +321,26 @@ class InventoryRepository {
       final normalizedBarcode = ProductCatalogRepository.normalizeBarcode(
         (data['barcodeCandidate'] as String?) ?? '',
       );
-      final productId = _productId(
-        branchId: branchId,
-        normalizedName: normalizedName,
-        normalizedBarcode: normalizedBarcode,
-      );
+
+      final matchedByBarcode = normalizedBarcode.isEmpty
+          ? null
+          : lookup.byBarcode[normalizedBarcode];
+      final matchedByName = lookup.byName[normalizedName];
+      final productId = matchedByBarcode ??
+          matchedByName ??
+          _productId(
+            branchId: branchId,
+            normalizedName: normalizedName,
+            normalizedBarcode: normalizedBarcode,
+          );
+
+      // Make products created earlier in this same bulk approval immediately
+      // available to later duplicate entries without another Firestore read.
+      lookup.byName[normalizedName] = productId;
+      if (normalizedBarcode.isNotEmpty) {
+        lookup.byBarcode[normalizedBarcode] = productId;
+      }
+
       final nextTotal = (totals[productId] ?? 0) + quantity;
       totals[productId] = nextTotal;
       final learnedAliases = _learnedOcrAliases(data, name);
@@ -373,7 +393,6 @@ class InventoryRepository {
       writesInBatch += 2;
       approved++;
 
-      // 400 leaves headroom below Firestore's 500-write hard limit.
       if (writesInBatch >= 400) await flushBatch();
     }
 
@@ -410,7 +429,6 @@ class InventoryRepository {
     final sessionRef = _db.collection('stock_count_sessions').doc(sessionId);
     final items = await sessionRef.collection('items').get();
 
-    // Delete child documents in safe chunks before deleting the parent session.
     for (var offset = 0; offset < items.docs.length; offset += 400) {
       final batch = _db.batch();
       final end = (offset + 400 < items.docs.length)
@@ -432,6 +450,79 @@ class InventoryRepository {
     });
   }
 
+  Future<String?> _findExistingProductId({
+    required String branchId,
+    required String normalizedName,
+    required String normalizedBarcode,
+  }) async {
+    final products = _db.collection('products');
+
+    Future<String?> run(Query<Map<String, dynamic>> query) async {
+      try {
+        final cached = await query.get(const GetOptions(source: Source.cache));
+        if (cached.docs.isNotEmpty) return cached.docs.first.id;
+      } catch (_) {}
+      try {
+        final fresh = await query.get().timeout(const Duration(milliseconds: 1000));
+        if (fresh.docs.isNotEmpty) return fresh.docs.first.id;
+      } catch (_) {}
+      return null;
+    }
+
+    if (normalizedBarcode.isNotEmpty) {
+      final match = await run(
+        products
+            .where('branchId', isEqualTo: branchId)
+            .where('barcode', isEqualTo: normalizedBarcode)
+            .limit(1),
+      );
+      if (match != null) return match;
+    }
+
+    if (normalizedName.isNotEmpty) {
+      return run(
+        products
+            .where('branchId', isEqualTo: branchId)
+            .where('normalizedName', isEqualTo: normalizedName)
+            .limit(1),
+      );
+    }
+    return null;
+  }
+
+  Future<_ProductLookup> _loadProductLookup(String branchId) async {
+    final query = _db.collection('products').where('branchId', isEqualTo: branchId);
+    QuerySnapshot<Map<String, dynamic>>? snapshot;
+
+    try {
+      final cached = await query.get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty) snapshot = cached;
+    } catch (_) {}
+
+    if (snapshot == null) {
+      try {
+        snapshot = await query.get().timeout(const Duration(milliseconds: 1400));
+      } catch (_) {}
+    }
+
+    final byBarcode = <String, String>{};
+    final byName = <String, String>{};
+    for (final doc in snapshot?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+      final data = doc.data();
+      final barcode = ProductCatalogRepository.normalizeBarcode(
+        (data['barcode'] as String?) ?? '',
+      );
+      final name = ProductCatalogRepository.normalizeName(
+        (data['normalizedName'] as String?)?.trim().isNotEmpty == true
+            ? data['normalizedName'] as String
+            : (data['name'] as String?) ?? '',
+      );
+      if (barcode.isNotEmpty) byBarcode[barcode] = doc.id;
+      if (name.isNotEmpty) byName[name] = doc.id;
+    }
+    return _ProductLookup(byBarcode: byBarcode, byName: byName);
+  }
+
   List<String> _learnedOcrAliases(
     Map<String, dynamic> itemData,
     String officialName,
@@ -445,8 +536,6 @@ class InventoryRepository {
       if (trimmed.length < 2 || trimmed.length > 120) return;
       final normalized = ProductCatalogRepository.normalizeName(trimmed);
       if (normalized.length < 2 || normalized == official) return;
-      // Keep only compact product-like OCR text. This avoids learning an
-      // ingredients paragraph or other noisy label text as a product alias.
       if (normalized.split(' ').length > 10) return;
       aliases.add(normalized);
     }
@@ -486,8 +575,6 @@ class InventoryRepository {
   }
 
   String _stableHash(String value) {
-    // 32-bit FNV-1a. Stable across app launches and compact enough for a
-    // Firestore document ID. Same corrected product name => same product.
     var hash = 0x811c9dc5;
     for (final codeUnit in value.codeUnits) {
       hash ^= codeUnit;
@@ -500,4 +587,11 @@ class InventoryRepository {
       .toLowerCase()
       .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
       .replaceAll(RegExp(r'^-+|-+$'), '');
+}
+
+class _ProductLookup {
+  const _ProductLookup({required this.byBarcode, required this.byName});
+
+  final Map<String, String> byBarcode;
+  final Map<String, String> byName;
 }
