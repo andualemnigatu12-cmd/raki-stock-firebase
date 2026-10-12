@@ -10,6 +10,7 @@ class ProductRecord {
     required this.stockQty,
     required this.active,
     this.localPhotoPath,
+    this.ocrAliases = const <String>[],
   });
 
   final String id;
@@ -20,9 +21,17 @@ class ProductRecord {
   final int stockQty;
   final bool active;
   final String? localPhotoPath;
+  final List<String> ocrAliases;
 
   factory ProductRecord.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
+    final aliases = (data['ocrAliases'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .take(40)
+        .toList(growable: false);
+
     return ProductRecord(
       id: doc.id,
       name: (data['name'] as String? ?? '').trim(),
@@ -32,6 +41,7 @@ class ProductRecord {
       stockQty: (data['stockQty'] as num?)?.toInt() ?? 0,
       active: data['active'] as bool? ?? true,
       localPhotoPath: (data['localPhotoPath'] as String?)?.trim(),
+      ocrAliases: aliases,
     );
   }
 }
@@ -55,11 +65,11 @@ class ProductCatalogRepository {
   final FirebaseFirestore _db;
 
   // These indexes are rebuilt only when the catalog list instance changes.
-  // Barcode and exact-name matching therefore become O(1), and fuzzy matching
-  // usually checks only a small token bucket instead of the whole catalog.
+  // Barcode, official-name and learned OCR-alias matching are therefore O(1).
   List<ProductRecord>? _indexedProducts;
   Map<String, ProductRecord> _barcodeIndex = const {};
   Map<String, ProductRecord> _nameIndex = const {};
+  Map<String, ProductRecord?> _aliasIndex = const {};
   Map<String, List<ProductRecord>> _tokenIndex = const {};
   Map<String, List<ProductRecord>> _foldedTokenIndex = const {};
 
@@ -131,17 +141,28 @@ class ProductCatalogRepository {
       );
     }
 
+    // Owner corrections become exact aliases. An alias is ignored when two
+    // different products learned the same OCR result, preventing a bad guess.
+    final learned = _aliasIndex[queryName];
+    if (learned != null) {
+      return ProductMatch(
+        product: learned,
+        confidence: 0.998,
+        source: 'learned_alias',
+      );
+    }
+
     final candidates = _candidateProducts(queryName, products);
     ProductRecord? best;
     var bestScore = 0.0;
     var secondBestScore = 0.0;
 
     for (final product in candidates) {
-      final candidate = product.normalizedName.isNotEmpty
-          ? normalizeName(product.normalizedName)
-          : normalizeName(product.name);
-      if (candidate.isEmpty) continue;
-      final score = _nameSimilarity(queryName, candidate);
+      var score = 0.0;
+      for (final variant in _productVariants(product)) {
+        final variantScore = _nameSimilarity(queryName, variant);
+        if (variantScore > score) score = variantScore;
+      }
       if (score > bestScore) {
         secondBestScore = bestScore;
         bestScore = score;
@@ -165,9 +186,8 @@ class ProductCatalogRepository {
     );
   }
 
-  /// Fast local search for the upcoming Products screen. Exact/prefix results
-  /// are ranked first; then contains matches. No Firestore query is needed for
-  /// each keystroke because the already-synced local catalog is used.
+  /// Fast local search for Products. Official names, barcodes and learned OCR
+  /// aliases are all searched without a Firestore request per keystroke.
   List<ProductRecord> searchProducts(
     List<ProductRecord> products,
     String query, {
@@ -202,10 +222,27 @@ class ProductCatalogRepository {
       } else if (barcodeQuery.length >= 3 && barcode.contains(barcodeQuery)) {
         score = 600;
       } else if (normalized.isNotEmpty) {
-        final queryTokens = normalized.split(' ');
-        final nameTokens = name.split(' ').toSet();
-        final hits = queryTokens.where(nameTokens.contains).length;
-        if (hits > 0) score = 300 + hits * 40;
+        for (final alias in product.ocrAliases) {
+          final cleanAlias = normalizeName(alias);
+          if (cleanAlias == normalized) {
+            score = 925;
+            break;
+          }
+          if (cleanAlias.startsWith(normalized) && score < 760) {
+            score = 760;
+          } else if (cleanAlias.contains(normalized) && score < 620) {
+            score = 620;
+          }
+        }
+
+        if (score == 0) {
+          final queryTokens = normalized.split(' ');
+          final variantTokens = _productVariants(product)
+              .expand((variant) => variant.split(' '))
+              .toSet();
+          final hits = queryTokens.where(variantTokens.contains).length;
+          if (hits > 0) score = 300 + hits * 40;
+        }
       }
 
       if (score > 0) scored.add((product: product, score: score));
@@ -227,6 +264,7 @@ class ProductCatalogRepository {
 
     final barcodeIndex = <String, ProductRecord>{};
     final nameIndex = <String, ProductRecord>{};
+    final aliasIndex = <String, ProductRecord?>{};
     final tokenIndex = <String, List<ProductRecord>>{};
     final foldedTokenIndex = <String, List<ProductRecord>>{};
 
@@ -234,21 +272,38 @@ class ProductCatalogRepository {
       final barcode = normalizeBarcode(product.barcode ?? '');
       if (barcode.isNotEmpty) barcodeIndex[barcode] = product;
 
-      final name = product.normalizedName.isNotEmpty
+      final canonical = product.normalizedName.isNotEmpty
           ? normalizeName(product.normalizedName)
           : normalizeName(product.name);
-      if (name.isEmpty) continue;
-      nameIndex[name] = product;
+      if (canonical.isNotEmpty) nameIndex[canonical] = product;
 
-      final uniqueTokens = name
-          .split(' ')
-          .where((token) => token.length >= 3)
-          .toSet();
-      for (final token in uniqueTokens) {
-        (tokenIndex[token] ??= <ProductRecord>[]).add(product);
-        final folded = _foldOcrToken(token);
-        if (folded.isNotEmpty) {
-          (foldedTokenIndex[folded] ??= <ProductRecord>[]).add(product);
+      final variants = _productVariants(product);
+      for (final variant in variants) {
+        if (variant != canonical) {
+          if (!aliasIndex.containsKey(variant)) {
+            aliasIndex[variant] = product;
+          } else if (aliasIndex[variant]?.id != product.id) {
+            aliasIndex[variant] = null;
+          }
+        }
+
+        final uniqueTokens = variant
+            .split(' ')
+            .where((token) => token.length >= 3)
+            .toSet();
+        for (final token in uniqueTokens) {
+          final tokenBucket = tokenIndex[token] ??= <ProductRecord>[];
+          if (!tokenBucket.any((entry) => entry.id == product.id)) {
+            tokenBucket.add(product);
+          }
+          final folded = _foldOcrToken(token);
+          if (folded.isNotEmpty) {
+            final foldedBucket =
+                foldedTokenIndex[folded] ??= <ProductRecord>[];
+            if (!foldedBucket.any((entry) => entry.id == product.id)) {
+              foldedBucket.add(product);
+            }
+          }
         }
       }
     }
@@ -256,8 +311,22 @@ class ProductCatalogRepository {
     _indexedProducts = products;
     _barcodeIndex = barcodeIndex;
     _nameIndex = nameIndex;
+    _aliasIndex = aliasIndex;
     _tokenIndex = tokenIndex;
     _foldedTokenIndex = foldedTokenIndex;
+  }
+
+  List<String> _productVariants(ProductRecord product) {
+    final values = <String>{};
+    final canonical = product.normalizedName.isNotEmpty
+        ? normalizeName(product.normalizedName)
+        : normalizeName(product.name);
+    if (canonical.isNotEmpty) values.add(canonical);
+    for (final alias in product.ocrAliases) {
+      final normalized = normalizeName(alias);
+      if (normalized.isNotEmpty) values.add(normalized);
+    }
+    return values.toList(growable: false);
   }
 
   List<ProductRecord> _candidateProducts(
@@ -282,8 +351,8 @@ class ProductCatalogRepository {
     }
 
     // If OCR changed every significant token, fall back to the complete local
-    // list so accuracy is preserved. Normal scans usually stay in the much
-    // smaller indexed candidate set.
+    // list so accuracy is preserved. Normal scans usually stay in the smaller
+    // indexed candidate set.
     if (unique.isEmpty) return allProducts;
     return unique.values.toList(growable: false);
   }
@@ -412,6 +481,7 @@ class ProductCatalogRepository {
       'z2',
       'g9q',
       'uv',
+      'ce',
     ];
     for (final group in groups) {
       if (group.contains(a) && group.contains(b)) return 0.28;
