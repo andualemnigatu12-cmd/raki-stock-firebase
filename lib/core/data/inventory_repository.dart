@@ -148,9 +148,9 @@ class InventoryRepository {
   /// Reviews one counted item and reconciles the product stock to the total
   /// quantity counted for that product in this session.
   ///
-  /// This intentionally does NOT read the product document before writing it.
-  /// A read of a not-yet-created product can be rejected by Firestore rules,
-  /// which was the cause of owner approval failing for brand-new products.
+  /// The OCR text that led to an owner correction is saved as an alias on the
+  /// product. Next time ML Kit makes the same stylized-font mistake, catalog
+  /// matching can resolve it immediately without another correction.
   Future<String> reviewItemIntoStock({
     required String branchId,
     required String sessionId,
@@ -177,6 +177,7 @@ class InventoryRepository {
         ProductCatalogRepository.normalizeBarcode(barcode ?? '');
     final existingLinkedId = (itemData['linkedProductId'] as String?)?.trim();
     final localPhotoPath = (itemData['localPhotoPath'] as String?)?.trim();
+    final learnedAliases = _learnedOcrAliases(itemData, cleanName);
     final productId = existingLinkedId?.isNotEmpty == true
         ? existingLinkedId!
         : _productId(
@@ -217,6 +218,10 @@ class InventoryRepository {
       productWrite['localPhotoPath'] = localPhotoPath;
       productWrite['photoState'] = 'local_only';
     }
+    if (learnedAliases.isNotEmpty) {
+      productWrite['ocrAliases'] = FieldValue.arrayUnion(learnedAliases);
+      productWrite['ocrLearnedAt'] = now;
+    }
 
     batch.set(productRef, productWrite, SetOptions(merge: true));
 
@@ -234,6 +239,7 @@ class InventoryRepository {
         'reviewedSellingPrice': sellingPrice,
         'reviewedAt': now,
         'reviewedBy': userId,
+        if (learnedAliases.isNotEmpty) 'learnedOcrAliases': learnedAliases,
       },
       SetOptions(merge: true),
     );
@@ -288,6 +294,7 @@ class InventoryRepository {
       );
       final nextTotal = (totals[productId] ?? 0) + quantity;
       totals[productId] = nextTotal;
+      final learnedAliases = _learnedOcrAliases(data, name);
 
       final productWrite = <String, dynamic>{
         'branchId': branchId,
@@ -308,6 +315,10 @@ class InventoryRepository {
         productWrite['localPhotoPath'] = localPhotoPath;
         productWrite['photoState'] = 'local_only';
       }
+      if (learnedAliases.isNotEmpty) {
+        productWrite['ocrAliases'] = FieldValue.arrayUnion(learnedAliases);
+        productWrite['ocrLearnedAt'] = now;
+      }
 
       batch.set(
         _db.collection('products').doc(productId),
@@ -323,6 +334,7 @@ class InventoryRepository {
           'reviewedBarcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
           'reviewedAt': now,
           'reviewedBy': userId,
+          if (learnedAliases.isNotEmpty) 'learnedOcrAliases': learnedAliases,
         },
         SetOptions(merge: true),
       );
@@ -374,6 +386,30 @@ class InventoryRepository {
       'status': 'finalized',
       'finalizedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  List<String> _learnedOcrAliases(
+    Map<String, dynamic> itemData,
+    String officialName,
+  ) {
+    final official = ProductCatalogRepository.normalizeName(officialName);
+    final aliases = <String>{};
+
+    void addCandidate(dynamic value) {
+      if (value is! String) return;
+      final trimmed = value.trim();
+      if (trimmed.length < 2 || trimmed.length > 120) return;
+      final normalized = ProductCatalogRepository.normalizeName(trimmed);
+      if (normalized.length < 2 || normalized == official) return;
+      // Keep only compact product-like OCR text. This avoids learning an
+      // ingredients paragraph or other noisy label text as a product alias.
+      if (normalized.split(' ').length > 10) return;
+      aliases.add(normalized);
+    }
+
+    addCandidate(itemData['suggestedName']);
+    addCandidate(itemData['primaryText']);
+    return aliases.take(4).toList(growable: false);
   }
 
   String _productId({
