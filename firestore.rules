@@ -99,20 +99,20 @@ service cloud.firestore {
       allow delete: if isOwner() && sameBranch(resource.data.branchId);
 
       match /items/{itemId} {
-        function sessionBranch() {
-          return get(/databases/$(database)/documents/stock_count_sessions/$(sessionId)).data.branchId;
-        }
-
-        allow read: if sameBranch(sessionBranch());
+        // Count items carry their own immutable branchId. Reading/writing by
+        // that branch avoids a race where a newly-created parent session is
+        // still syncing while the employee already captures the first item.
+        allow read: if sameBranch(resource.data.branchId);
 
         allow create: if signedIn()
           && request.resource.data.createdBy == request.auth.uid
-          && sameBranch(sessionBranch());
+          && sameBranch(request.resource.data.branchId);
 
-        allow update: if sameBranch(sessionBranch())
+        allow update: if sameBranch(resource.data.branchId)
+          && request.resource.data.branchId == resource.data.branchId
           && (isOwner() || resource.data.createdBy == request.auth.uid);
 
-        allow delete: if isOwner() && sameBranch(sessionBranch());
+        allow delete: if isOwner() && sameBranch(resource.data.branchId);
       }
     }
   }
