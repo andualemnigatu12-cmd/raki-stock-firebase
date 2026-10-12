@@ -38,16 +38,23 @@ class InventoryRepository {
     final code =
         'CNT-${now.year.toString().substring(2)}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
 
+    // Firestore's mobile SDK keeps writes in its persistent local queue while
+    // offline. We enqueue immediately so the camera can open without waiting
+    // for a server round-trip. Count-item writes also carry branchId, so they
+    // no longer depend on this parent having finished syncing first.
     unawaited(
-      ref.set({
-        'code': code,
-        'branchId': branchId,
-        'createdBy': userId,
-        'status': 'draft',
-        'createdAt': FieldValue.serverTimestamp(),
-        'localCreatedAt': Timestamp.fromDate(now),
-        'finalizedAt': null,
-      }).catchError((_) {}),
+      _retryWrite(
+        () => ref.set({
+          'code': code,
+          'branchId': branchId,
+          'createdBy': userId,
+          'status': 'draft',
+          'createdAt': FieldValue.serverTimestamp(),
+          'localCreatedAt': Timestamp.fromDate(now),
+          'finalizedAt': null,
+        }),
+        retries: 2,
+      ).catchError((_) {}),
     );
     return ref;
   }
@@ -57,7 +64,7 @@ class InventoryRepository {
         .collection('stock_count_sessions')
         .where('branchId', isEqualTo: branchId)
         .limit(50)
-        .snapshots();
+        .snapshots(includeMetadataChanges: true);
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> watchItems(String sessionId) {
@@ -67,7 +74,7 @@ class InventoryRepository {
         .collection('items')
         .orderBy('localCreatedAt', descending: true)
         .limit(8)
-        .snapshots();
+        .snapshots(includeMetadataChanges: true);
   }
 
   Future<void> saveCountItem({
@@ -84,29 +91,33 @@ class InventoryRepository {
     String? rawOcr,
     String? barcode,
   }) async {
-    await _db
+    final ref = _db
         .collection('stock_count_sessions')
         .doc(sessionId)
         .collection('items')
-        .doc(clientEntryId)
-        .set({
-      'clientEntryId': clientEntryId,
-      'tempCode': tempCode,
-      'branchId': branchId,
-      'quantity': quantity,
-      'suggestedName': suggestedName,
-      'primaryText': primaryText,
-      'rawOcr': rawOcr,
-      'barcodeCandidate': barcode,
-      'createdBy': userId,
-      'localCreatedAt': Timestamp.fromDate(localCreatedAt),
-      'createdAt': FieldValue.serverTimestamp(),
-      'localPhotoPath': localPhotoPath,
-      'photoState': 'local_only',
-      'hasLocalPhoto': true,
-      'nameState': suggestedName == null ? 'needs_review' : 'auto',
-      'reviewState': 'pending',
-    }, SetOptions(merge: true));
+        .doc(clientEntryId);
+
+    await _retryWrite(
+      () => ref.set({
+        'clientEntryId': clientEntryId,
+        'tempCode': tempCode,
+        'branchId': branchId,
+        'quantity': quantity,
+        'suggestedName': suggestedName,
+        'primaryText': primaryText,
+        'rawOcr': rawOcr,
+        'barcodeCandidate': barcode,
+        'createdBy': userId,
+        'localCreatedAt': Timestamp.fromDate(localCreatedAt),
+        'createdAt': FieldValue.serverTimestamp(),
+        'localPhotoPath': localPhotoPath,
+        'photoState': 'local_only',
+        'hasLocalPhoto': true,
+        'nameState': suggestedName == null ? 'needs_review' : 'auto',
+        'reviewState': 'pending',
+      }, SetOptions(merge: true)),
+      retries: 2,
+    );
   }
 
   Future<void> patchRecognizedData({
@@ -117,19 +128,23 @@ class InventoryRepository {
     String? rawOcr,
     String? barcode,
   }) async {
-    await _db
+    final ref = _db
         .collection('stock_count_sessions')
         .doc(sessionId)
         .collection('items')
-        .doc(itemId)
-        .set({
-      'suggestedName': suggestedName,
-      'primaryText': primaryText,
-      'rawOcr': rawOcr,
-      'barcodeCandidate': barcode,
-      'nameState': suggestedName == null ? 'needs_review' : 'auto',
-      'ocrSource': suggestedName == null ? null : 'on_device_mlkit',
-    }, SetOptions(merge: true));
+        .doc(itemId);
+
+    await _retryWrite(
+      () => ref.set({
+        'suggestedName': suggestedName,
+        'primaryText': primaryText,
+        'rawOcr': rawOcr,
+        'barcodeCandidate': barcode,
+        'nameState': suggestedName == null ? 'needs_review' : 'auto',
+        'ocrSource': suggestedName == null ? null : 'on_device_mlkit',
+      }, SetOptions(merge: true)),
+      retries: 1,
+    );
   }
 
   Future<void> updateItemName({
@@ -207,6 +222,9 @@ class InventoryRepository {
       'name': cleanName,
       'normalizedName': normalizedName,
       'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+      'catalogKey': normalizedBarcode.isNotEmpty
+          ? 'barcode:$normalizedBarcode'
+          : 'name:$normalizedName',
       'sellingPrice': sellingPrice,
       'stockQty': sessionTotal,
       'active': true,
@@ -252,6 +270,9 @@ class InventoryRepository {
   /// prices are preserved because bulk approval does not write a sellingPrice.
   /// New products without a price remain at the app's default 0 until the owner
   /// opens the item and edits its price.
+  ///
+  /// Firestore batches are capped at 500 writes. We commit in chunks so a large
+  /// first-day catalog does not suddenly fail around 250 counted products.
   Future<int> approveAllPending({
     required String branchId,
     required String sessionId,
@@ -271,9 +292,17 @@ class InventoryRepository {
           ((data['quantity'] as num?)?.toInt() ?? 0);
     }
 
-    final batch = _db.batch();
+    WriteBatch batch = _db.batch();
+    var writesInBatch = 0;
     final now = FieldValue.serverTimestamp();
     var approved = 0;
+
+    Future<void> flushBatch() async {
+      if (writesInBatch == 0) return;
+      await batch.commit();
+      batch = _db.batch();
+      writesInBatch = 0;
+    }
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
@@ -301,6 +330,9 @@ class InventoryRepository {
         'name': name,
         'normalizedName': normalizedName,
         'barcode': normalizedBarcode.isEmpty ? null : normalizedBarcode,
+        'catalogKey': normalizedBarcode.isNotEmpty
+            ? 'barcode:$normalizedBarcode'
+            : 'name:$normalizedName',
         'stockQty': nextTotal,
         'active': true,
         'updatedAt': now,
@@ -338,10 +370,14 @@ class InventoryRepository {
         },
         SetOptions(merge: true),
       );
+      writesInBatch += 2;
       approved++;
+
+      // 400 leaves headroom below Firestore's 500-write hard limit.
+      if (writesInBatch >= 400) await flushBatch();
     }
 
-    if (approved > 0) await batch.commit();
+    await flushBatch();
     return approved;
   }
 
@@ -373,12 +409,20 @@ class InventoryRepository {
   Future<void> deleteSession(String sessionId) async {
     final sessionRef = _db.collection('stock_count_sessions').doc(sessionId);
     final items = await sessionRef.collection('items').get();
-    final batch = _db.batch();
-    for (final doc in items.docs) {
-      batch.delete(doc.reference);
+
+    // Delete child documents in safe chunks before deleting the parent session.
+    for (var offset = 0; offset < items.docs.length; offset += 400) {
+      final batch = _db.batch();
+      final end = (offset + 400 < items.docs.length)
+          ? offset + 400
+          : items.docs.length;
+      for (var i = offset; i < end; i++) {
+        batch.delete(items.docs[i].reference);
+      }
+      await batch.commit();
     }
-    batch.delete(sessionRef);
-    await batch.commit();
+
+    await sessionRef.delete();
   }
 
   Future<void> finalizeSession(String sessionId) async {
@@ -410,6 +454,24 @@ class InventoryRepository {
     addCandidate(itemData['suggestedName']);
     addCandidate(itemData['primaryText']);
     return aliases.take(4).toList(growable: false);
+  }
+
+  Future<void> _retryWrite(
+    Future<void> Function() operation, {
+    int retries = 2,
+  }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      try {
+        await operation();
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= retries) break;
+        await Future<void>.delayed(Duration(milliseconds: 250 + attempt * 250));
+      }
+    }
+    throw lastError ?? StateError('Write failed.');
   }
 
   String _productId({
