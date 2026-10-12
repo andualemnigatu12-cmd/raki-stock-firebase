@@ -1,0 +1,80 @@
+name: Apply V1 Safety Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-v1-safety-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Protect master products when deleting count rows
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          review = Path('lib/features/stock/stock_review_page.dart')
+          text = review.read_text()
+          old = '''          alreadyAdded
+              ? 'Delete "$name" from this count and also remove its linked product from Products?'
+              : 'Delete "$name" from this stock count?',
+'''
+          new = '''          alreadyAdded
+              ? 'Delete "$name" from this stock count? The approved product will stay in Products.'
+              : 'Delete "$name" from this stock count?',
+'''
+          if old not in text:
+              raise SystemExit('Stock Review confirmation text was not found')
+          text = text.replace(old, new, 1)
+
+          old_call = '''        deleteLinkedProduct: alreadyAdded,
+'''
+          new_call = '''        deleteLinkedProduct: false,
+'''
+          if old_call not in text:
+              raise SystemExit('deleteLinkedProduct call was not found')
+          text = text.replace(old_call, new_call, 1)
+          review.write_text(text)
+
+          repo = Path('lib/core/data/inventory_repository.dart')
+          text = repo.read_text()
+          old_block = '''    if (deleteLinkedProduct) {
+      final linked = (data['linkedProductId'] as String?)?.trim();
+      if (linked?.isNotEmpty == true) {
+        batch.delete(_db.collection('products').doc(linked));
+      }
+    }
+'''
+          new_block = '''    if (deleteLinkedProduct) {
+      // Legacy flag intentionally does not delete the master product. A count
+      // row is history; removing it must never erase a catalog product that may
+      // be referenced by other counts or future inventory movements.
+    }
+'''
+          if old_block not in text:
+              raise SystemExit('Inventory delete block was not found')
+          text = text.replace(old_block, new_block, 1)
+          repo.write_text(text)
+          PY
+
+      - name: Commit safety fix
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/features/stock/stock_review_page.dart lib/core/data/inventory_repository.dart
+          git commit -m "Protect master products when deleting count items"
+          git push origin HEAD:main
