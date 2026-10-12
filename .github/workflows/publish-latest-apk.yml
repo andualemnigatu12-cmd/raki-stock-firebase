@@ -1,0 +1,43 @@
+name: Publish Latest 32-bit APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-latest-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download successful APK artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/raki-apk
+          gh api repos/${{ github.repository }}/actions/artifacts/11751451304/zip > /tmp/raki-apk/artifact.zip
+          unzip -o /tmp/raki-apk/artifact.zip -d /tmp/raki-apk/files
+          ls -lh /tmp/raki-apk/files
+          test -f /tmp/raki-apk/files/Raki-Stock-v2-armeabi-v7a.apk
+
+      - name: Publish direct APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG='raki-stock-v2-latest'
+          APK='/tmp/raki-apk/files/Raki-Stock-v2-armeabi-v7a.apk'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" \
+              --title 'Raki Stock V2 - Latest 32-bit APK' \
+              --notes 'Latest tested 32-bit armeabi-v7a build for Raki Stock.'
+          fi
