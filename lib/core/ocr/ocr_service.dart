@@ -48,9 +48,8 @@ class OcrService {
   }
 
   Future<OcrResult> _readNow(String imagePath) async {
-    // One native ML Kit pass keeps capture responsive on lower-memory Android
-    // phones. The previous Dart image decode/resize/contrast pass could block
-    // the UI for several seconds after pressing Capture.
+    // Keep OCR to one native ML Kit pass for speed. Font tolerance is improved
+    // below by using both full text lines and smaller text elements/fragments.
     final result =
         await _recognizer.processImage(InputImage.fromFilePath(imagePath));
     final raw = result.text.trim();
@@ -75,19 +74,77 @@ class OcrService {
         final raw = line.text.replaceAll(RegExp(r'\s+'), ' ').trim();
         if (raw.isEmpty) continue;
         allText.add(raw);
+
         final cleaned = _clean(raw);
         if (cleaned != null) {
           candidates.add(
             _Candidate(
               text: cleaned,
-              index: index,
+              index: index++,
               blockIndex: blockIndex,
               rect: line.boundingBox,
-              confidence: line.confidence ?? 0.65,
+              confidence: line.confidence ?? _lineConfidence(line),
+              fragment: false,
             ),
           );
         }
-        index++;
+
+        // Decorative/cursive packaging sometimes makes ML Kit split a brand
+        // into smaller elements even when the complete line is weak. Keep
+        // useful element fragments as fallback candidates without doing a
+        // second OCR/image-processing pass.
+        final elements = line.elements;
+        for (final element in elements) {
+          final elementText =
+              element.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+          final elementCleaned = _clean(elementText);
+          if (elementCleaned == null ||
+              elementCleaned == cleaned ||
+              !_looksLikeBrandFragment(elementCleaned)) {
+            continue;
+          }
+          candidates.add(
+            _Candidate(
+              text: elementCleaned,
+              index: index++,
+              blockIndex: blockIndex,
+              rect: element.boundingBox,
+              confidence: element.confidence ?? line.confidence ?? 0.48,
+              fragment: true,
+            ),
+          );
+        }
+
+        // Also join neighboring OCR elements. This helps names where a script
+        // or logo-like font causes one word to be split into two visual pieces.
+        if (elements.length >= 2) {
+          for (var i = 0; i < elements.length - 1; i++) {
+            final first = elements[i];
+            final second = elements[i + 1];
+            final joined = '${first.text} ${second.text}'
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim();
+            final joinedCleaned = _clean(joined);
+            if (joinedCleaned == null ||
+                joinedCleaned == cleaned ||
+                !_looksLikeBrandFragment(joinedCleaned)) {
+              continue;
+            }
+            candidates.add(
+              _Candidate(
+                text: joinedCleaned,
+                index: index++,
+                blockIndex: blockIndex,
+                rect: _union(first.boundingBox, second.boundingBox),
+                confidence: _average(
+                  first.confidence ?? line.confidence ?? 0.48,
+                  second.confidence ?? line.confidence ?? 0.48,
+                ),
+                fragment: true,
+              ),
+            );
+          }
+        }
       }
       blockIndex++;
     }
@@ -98,16 +155,12 @@ class OcrService {
     var maxArea = 1.0;
     var minLeft = candidates.first.rect.left;
     var maxRight = candidates.first.rect.right;
-    var minTop = candidates.first.rect.top;
-    var maxBottom = candidates.first.rect.bottom;
 
     for (final candidate in candidates) {
       if (candidate.height > maxHeight) maxHeight = candidate.height;
       if (candidate.area > maxArea) maxArea = candidate.area;
       if (candidate.rect.left < minLeft) minLeft = candidate.rect.left;
       if (candidate.rect.right > maxRight) maxRight = candidate.rect.right;
-      if (candidate.rect.top < minTop) minTop = candidate.rect.top;
-      if (candidate.rect.bottom > maxBottom) maxBottom = candidate.rect.bottom;
     }
 
     final labelCenterX = (minLeft + maxRight) / 2;
@@ -116,20 +169,27 @@ class OcrService {
     final scored = candidates.map((candidate) {
       final letters = RegExp(r'[A-Za-zÀ-ÿ]').allMatches(candidate.text).length;
       final uppercase = RegExp(r'[A-ZÀ-Þ]').allMatches(candidate.text).length;
+      final lowercase = RegExp(r'[a-zà-ÿ]').allMatches(candidate.text).length;
       final digits = RegExp(r'\d').allMatches(candidate.text).length;
       final words = candidate.text.split(RegExp(r'\s+')).length;
       final upperRatio = letters == 0 ? 0.0 : uppercase / letters;
-      final heightScore = (candidate.height / maxHeight) * 94;
-      final areaScore = (candidate.area / maxArea) * 30;
-      final confidenceScore = candidate.confidence * 18;
-      final compactScore = candidate.text.length <= 38 ? 13.0 : 6.0;
-      final wordScore = words <= 5 ? 13.0 : (words <= 8 ? 7.0 : -5.0);
+      final letterRatio = candidate.text.isEmpty ? 0.0 : letters / candidate.text.length;
+      final heightScore = (candidate.height / maxHeight) * 90;
+      final areaScore = (candidate.area / maxArea) * 27;
+      final confidenceScore = candidate.confidence * 14;
+      final compactScore = candidate.text.length <= 44 ? 14.0 : 5.0;
+      final wordScore = words <= 5 ? 14.0 : (words <= 8 ? 8.0 : -4.0);
       final centerX = (candidate.rect.left + candidate.rect.right) / 2;
       final centerDistance = (centerX - labelCenterX).abs() / labelWidth;
       final centerScore = (1 - centerDistance.clamp(0.0, 1.0)) * 12;
-      final letterScore = letters >= 3 ? 9.0 : 0.0;
-      final digitPenalty = digits * 1.1;
+      final letterScore = letters >= 3 ? 10.0 : 0.0;
+      final brandLikeScore = letterRatio >= 0.65 && digits <= 2 ? 12.0 : 0.0;
+      final mixedCaseScore = uppercase > 0 && lowercase > 0 ? 4.0 : 0.0;
+      final fragmentPenalty = candidate.fragment ? 6.0 : 0.0;
+      final digitPenalty = digits * 0.9;
 
+      // Do not over-reward all-caps. Script/cursive and logo fonts are often
+      // mixed/lower case, so geometry and letter density matter more.
       final score = heightScore +
           areaScore +
           confidenceScore +
@@ -137,7 +197,10 @@ class OcrService {
           wordScore +
           centerScore +
           letterScore +
-          upperRatio * 14 -
+          brandLikeScore +
+          mixedCaseScore +
+          upperRatio * 6 -
+          fragmentPenalty -
           digitPenalty;
       return _ScoredCandidate(candidate, score);
     }).toList()
@@ -156,21 +219,21 @@ class OcrService {
       final gap = _verticalGap(primary.value.rect, candidate.value.rect);
       final refHeight = _maxDouble(primary.value.height, candidate.value.height);
       final heightRatio = candidate.value.height / primary.value.height;
-      final close = gap <= refHeight * 5.2;
-      final aligned = overlap >= 0.10 || alignment >= 0.44;
-      final readable = heightRatio >= 0.18;
-      final confidenceOk = candidate.value.confidence >= 0.22;
+      final close = gap <= refHeight * 6.5;
+      final aligned = overlap >= 0.07 || alignment >= 0.38;
+      final readable = heightRatio >= 0.10;
+      final confidenceOk = candidate.value.confidence >= 0.10;
 
       if (!(sameBlock || (close && aligned))) continue;
       if (!readable || !confidenceOk) continue;
 
       final relationScore =
-          (sameBlock ? 50.0 : 0.0) +
-          overlap * 30 +
-          alignment * 28 +
-          _minDouble(heightRatio, 1.0) * 18 +
-          candidate.value.confidence * 14 -
-          (gap / refHeight) * 4;
+          (sameBlock ? 48.0 : 0.0) +
+          overlap * 28 +
+          alignment * 26 +
+          _minDouble(heightRatio, 1.0) * 20 +
+          candidate.value.confidence * 10 -
+          (gap / refHeight) * 3;
 
       related.add(_RelatedCandidate(candidate, relationScore));
     }
@@ -179,7 +242,7 @@ class OcrService {
 
     final selected = <_ScoredCandidate>[primary];
     for (final relatedCandidate in related) {
-      if (selected.length >= 7) break;
+      if (selected.length >= 8) break;
       final candidate = relatedCandidate.scored;
       final normalized = _normalize(candidate.value.text);
       final duplicate = selected.any((existing) {
@@ -223,7 +286,7 @@ class OcrService {
 
     final averageConfidence = selected
             .map((candidate) => candidate.value.confidence)
-            .fold<double>(0, (sum, value) => sum + value) /
+            .fold<double>(0, (total, value) => total + value) /
         selected.length;
 
     return _NameSuggestion(
@@ -232,6 +295,36 @@ class OcrService {
       confidence: averageConfidence,
     );
   }
+
+  double _lineConfidence(TextLine line) {
+    if (line.elements.isEmpty) return 0.55;
+    var total = 0.0;
+    var count = 0;
+    for (final element in line.elements) {
+      final confidence = element.confidence;
+      if (confidence == null) continue;
+      total += confidence;
+      count++;
+    }
+    return count == 0 ? 0.55 : total / count;
+  }
+
+  bool _looksLikeBrandFragment(String text) {
+    final letters = RegExp(r'[A-Za-zÀ-ÿ]').allMatches(text).length;
+    final digits = RegExp(r'\d').allMatches(text).length;
+    if (letters < 3) return false;
+    if (digits > letters) return false;
+    return text.length <= 48;
+  }
+
+  Rect _union(Rect a, Rect b) => Rect.fromLTRB(
+        _minDouble(a.left, b.left),
+        _minDouble(a.top, b.top),
+        _maxDouble(a.right, b.right),
+        _maxDouble(a.bottom, b.bottom),
+      );
+
+  double _average(double a, double b) => (a + b) / 2;
 
   bool _isDuplicate(String a, String b) {
     final first = _normalize(a);
@@ -266,11 +359,11 @@ class OcrService {
 
   String? _clean(String input) {
     final text = input
-        .replaceAll(RegExp(r'[^A-Za-z0-9À-ÿ&+\-\s.,]'), ' ')
+        .replaceAll(RegExp(r"[^A-Za-z0-9À-ÿ&+'\-\s.,]"), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
 
-    if (text.length < 2 || text.length > 90) return null;
+    if (text.length < 2 || text.length > 120) return null;
     if (!RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(text)) return null;
 
     final lower = text.toLowerCase();
@@ -352,6 +445,15 @@ class OcrService {
       if (word.isEmpty) return word;
       if (word.length <= 4 && word == word.toUpperCase()) return word;
       if (RegExp(r'^\d').hasMatch(word)) return word;
+
+      // Preserve mixed-case brand spelling when OCR provides it (for example
+      // iPhone/eBay-like marks) rather than forcing everything to title case.
+      final hasUpper = RegExp(r'[A-ZÀ-Þ]').hasMatch(word);
+      final hasLower = RegExp(r'[a-zà-ÿ]').hasMatch(word);
+      if (hasUpper && hasLower && word.substring(1).contains(RegExp(r'[A-Z]'))) {
+        return word;
+      }
+
       return '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}';
     }).join(' ');
   }
@@ -379,6 +481,7 @@ class _Candidate {
     required this.blockIndex,
     required this.rect,
     required this.confidence,
+    required this.fragment,
   });
 
   final String text;
@@ -386,6 +489,7 @@ class _Candidate {
   final int blockIndex;
   final Rect rect;
   final double confidence;
+  final bool fragment;
 
   double get height => rect.height <= 0 ? 1 : rect.height;
   double get area {
