@@ -145,6 +145,9 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Test V2 product identity
+        run: flutter test test/v2_registration_identity_test.dart
+
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
