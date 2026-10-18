@@ -179,6 +179,7 @@ class _ApproveEntryDialogState extends State<_ApproveEntryDialog> {
       if (!mounted) return;
       setState(() {
         _matches = products.docs
+            .where((doc) => doc.data()['schemaVersion'] == 2)
             .map(ProductRecord.fromDoc)
             .where((p) => p.active)
             .toList();
