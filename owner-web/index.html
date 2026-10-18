@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#173b43">
+  <title>Raki Stock — Owner Control</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <main id="setup" class="center-screen">
+    <section class="auth-card">
+      <div class="logo-mark">R</div>
+      <p class="eyebrow">RAKI STOCK · OWNER CONTROL</p>
+      <h1>Connect Firebase</h1>
+      <p class="muted">One-time configuration for this browser. These Firebase web application identifiers are public configuration, not a password. No data will be changed by connecting.</p>
+      <form id="config-form">
+        <label>Firebase Web API key <input id="apiKey" autocomplete="off" required></label>
+        <label>Project ID <input id="projectId" placeholder="raki-stock-f3ab9" required></label>
+        <label>Web App ID <input id="appId" placeholder="1:...:web:..." required></label>
+        <button class="primary" type="submit">Connect project</button>
+      </form>
+      <p class="tiny muted">Register a Firebase Web app in Firebase Console and authorize the GitHub Pages domain in Authentication before logging in.</p>
+    </section>
+  </main>
+  <main id="login" class="center-screen hidden">
+    <section class="auth-card">
+      <div class="logo-mark">R</div>
+      <p class="eyebrow">RAKI STOCK · OWNER CONTROL</p>
+      <h1>Welcome back.</h1>
+      <p class="muted">Only an active account with the owner role can access this workspace.</p>
+      <form id="login-form">
+        <label>Email <input type="email" id="loginEmail" required autocomplete="username"></label>
+        <label>Password <input type="password" id="loginPassword" required autocomplete="current-password"></label>
+        <button class="primary" type="submit">Sign in securely</button>
+      </form>
+      <button type="button" id="reset-config" class="text-button">Change Firebase project</button>
+    </section>
+  </main>
+  <div id="shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">R</span><span><strong>Raki Stock</strong><small>OWNER CONTROL</small></span></div>
+      <p class="sidebar-caption">OPERATIONS</p>
+      <nav aria-label="Owner navigation">
+        <button class="nav-link active" data-view="pending">◎ &nbsp; Pending review</button>
+        <button class="nav-link" data-view="catalog">▤ &nbsp; Product catalog</button>
+        <button class="nav-link" data-view="register">＋ &nbsp; Manual registration</button>
+        <button class="nav-link" data-view="backup">⇩ &nbsp; Backup and audit</button>
+      </nav>
+      <div class="side-bottom">
+        <p id="account-summary" class="muted tiny"></p>
+        <button id="logout" class="outline">Sign out</button>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="top-bar">
+        <div><p class="eyebrow">RAKI SHOP · BALE ROBE</p><h1 id="view-heading">Pending review</h1></div>
+        <span class="pill">PILOT MODE · NO LIVE SALES</span>
+      </header>
+      <section class="overview" aria-label="Live inventory overview">
+        <div class="stat"><p>Pending entries</p><strong id="pending-count">—</strong></div>
+        <div class="stat"><p>Approved V2 products</p><strong id="product-count">—</strong></div>
+        <div class="stat"><p>Approved V2 units</p><strong id="unit-count">—</strong></div>
+      </section>
+      <section id="pending-view" class="panel">
+        <div class="section-head"><div><h2>Capture queue</h2><p>Confirm every name, variant, quantity and ETB price before stock changes.</p></div></div>
+        <div id="pending-list" class="entry-list"><p class="muted">Connecting to Firebase…</p></div>
+      </section>
+      <section id="catalog-view" class="panel hidden">
+        <div class="section-head"><div><h2>Approved product catalog</h2><p>Only owner-approved V2 products appear here.</p></div><input id="catalog-search" placeholder="Search name or barcode" aria-label="Search catalog"></div>
+        <div class="table-scroll"><table><thead><tr><th>Product</th><th>Barcode</th><th>Selling price</th><th>Available units</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
+      </section>
+      <section id="register-view" class="panel hidden">
+        <div class="section-head"><div><h2>Manual product capture</h2><p>Submit an entry for review. It will NOT change stock until approved.</p></div></div>
+        <form id="register-form" class="form-grid">
+          <label>Product name + size <input id="register-name" placeholder="e.g. Coca Cola 500 ml" required></label>
+          <label>Barcode (optional) <input id="register-barcode"></label>
+          <label>Quantity (selling units) <input id="register-qty" type="number" min="1" step="1" required></label>
+          <label>Shelf / section <input id="register-section" placeholder="A01"></label>
+          <label class="wide">Packaging words <textarea id="register-text" rows="2"></textarea></label>
+          <button class="primary" id="register-submit" type="submit">Submit for owner review</button>
+        </form>
+        <p class="note">Mobile app captures a real product photo. Website manual entry does not upload a photo. Photo sharing still requires an approved external storage solution.</p>
+      </section>
+      <section id="backup-view" class="panel hidden">
+        <div class="section-head"><div><h2>Download a safe backup</h2><p>Export the branch records to a JSON file before counting real merchandise.</p></div></div>
+        <button id="export-json" class="primary">Download JSON export</button>
+        <p class="note">Export contains product, registration, and movement metadata; local phone photos are not included. Save two independent backup copies and check that the download opens.</p>
+        <hr>
+        <h3>Stock integrity</h3><p class="muted">Each approved entry creates one immutable opening-count movement. Do not use POS checkout until sales, refunds, and cash reconciliation are built and tested.</p>
+      </section>
+      <footer>Raki Stock V2 · Pilot workspace. No existing Firebase data is automatically deleted or migrated.</footer>
+    </div>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
