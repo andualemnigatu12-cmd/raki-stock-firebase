@@ -526,7 +526,7 @@ class ProductCatalogRepository {
       value = value.replaceAll(from, to);
     });
     return value
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'[^\\p{L}\\p{N}]+', unicode: true), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
