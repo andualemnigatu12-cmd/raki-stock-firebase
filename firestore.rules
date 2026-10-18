@@ -122,7 +122,7 @@ service cloud.firestore {
           'localPhotoPath', 'status', 'createdAt', 'schemaVersion'
         ]);
 
-      allow update: if isOwner()
+      allow update: if (isOwner()
         && sameBranch(resource.data.branchId)
         && request.resource.data.branchId == resource.data.branchId
         && request.resource.data.createdBy == resource.data.createdBy
@@ -140,7 +140,16 @@ service cloud.firestore {
           ||
           (request.resource.data.status == 'rejected'
             && request.resource.data.reviewedBy == request.auth.uid)
-        );
+        ))
+        || (signedIn()
+          && sameBranch(resource.data.branchId)
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly([
+              'nameCandidate', 'barcodeCandidate', 'productText'
+            ]));
 
       allow delete: if false;
     }
