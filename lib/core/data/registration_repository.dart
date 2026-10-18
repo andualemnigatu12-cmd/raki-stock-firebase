@@ -76,14 +76,14 @@ class RegistrationRepository {
         .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
         .replaceAll(RegExp(r'^-+|-+$'), '');
     final cleanBarcode = ProductCatalogRepository.normalizeBarcode(barcode);
-    if (cleanBarcode.isNotEmpty) return '$branch-b-$cleanBarcode';
+    if (cleanBarcode.isNotEmpty) return 'v2-$branch-b-$cleanBarcode';
 
     var hash = 0x811c9dc5;
     for (final code in normalizedName.codeUnits) {
       hash ^= code;
       hash = (hash * 0x01000193) & 0xffffffff;
     }
-    return '$branch-n-${hash.toRadixString(16).padLeft(8, '0')}';
+    return 'v2-$branch-n-${hash.toRadixString(16).padLeft(8, '0')}';
   }
 
   /// Approval atomically marks the entry, creates an immutable movement and
@@ -199,6 +199,7 @@ class RegistrationRepository {
         'updatedAt': now,
         'updatedBy': ownerId,
         'schemaVersion': 2,
+        'lastMovementId': entryId,
         if (product == null) 'createdAt': now,
         if (product == null) 'createdBy': ownerId,
         if (product == null) 'registrationSource': 'reviewed_entry',
