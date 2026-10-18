@@ -17,7 +17,7 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({
 const normalizeName = text => String(text ?? "")
   .toLowerCase().replace(/æ/g, "ae").replace(/œ/g, "oe")
   .normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
-  .replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  .replace(/[^\\p{L}\\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 const normalizeBarcode = text => String(text ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 const formatMoney = amount => new Intl.NumberFormat("en-ET", {
   minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -58,8 +58,9 @@ function productId(name, barcode) {
   const code = normalizeBarcode(barcode);
   if (code) return "v2-" + slug + "-b-" + code;
   let hash = 0x811c9dc5;
-  for (const c of normalizeName(name)) {
-    hash ^= c.charCodeAt(0);
+  const normalized = normalizeName(name);
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return "v2-" + slug + "-n-" + hash.toString(16).padStart(8, "0");
@@ -68,8 +69,9 @@ function productId(name, barcode) {
 function candidateProducts(name, barcode) {
   const normalized = normalizeName(name), code = normalizeBarcode(barcode);
   return products.filter(p => (
-    (code && normalizeBarcode(p.barcode) === code) ||
-    (normalized && normalizeName(p.name) === normalized)
+    (code && normalizeBarcode(p.barcode) && normalizeBarcode(p.barcode) === code) ||
+    (normalized && (!code || !normalizeBarcode(p.barcode)) &&
+      normalizeName(p.name) === normalized)
   )).slice(0, 25);
 }
 function renderStats() {
@@ -235,7 +237,7 @@ function subscribe() {
   unsubscribe.forEach(fn => fn());
   unsubscribe = [];
   unsubscribe.push(onSnapshot(
-    query(collection(db, "registration_entries"), where("branchId", "==", branchId), limit(500)),
+    query(collection(db, "registration_entries"), where("branchId", "==", branchId), limit(2000)),
     snap => {
       entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       renderStats(); renderPending();
