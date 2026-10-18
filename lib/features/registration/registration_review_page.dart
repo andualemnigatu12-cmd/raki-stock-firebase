@@ -208,7 +208,9 @@ class _ApproveEntryDialogState extends State<_ApproveEntryDialog> {
         p.barcode ?? '',
       );
       final otherName = ProductCatalogRepository.normalizeName(p.name);
-      if (code.isNotEmpty && otherCode == code) return true;
+      if (code.isNotEmpty && otherCode.isNotEmpty) {
+        return otherCode == code;
+      }
       return name.isNotEmpty && otherName == name;
     }).take(5).toList();
     return found;
@@ -229,6 +231,11 @@ class _ApproveEntryDialogState extends State<_ApproveEntryDialog> {
     final price = double.tryParse(_price.text.trim().replaceAll(',', '.'));
     if (price == null || price <= 0) {
       setState(() => _error = 'Confirm a price greater than zero.');
+      return;
+    }
+    if (_suggestions.isNotEmpty && _existingProductId == null) {
+      setState(() => _error =
+          'Existing product found. Select it before adding quantity.');
       return;
     }
     final user = FirebaseAuth.instance.currentUser;
