@@ -74,15 +74,92 @@ service cloud.firestore {
     match /products/{productId} {
       allow read: if sameBranch(resource.data.branchId);
 
+      // Old test records can still be read, but all NEW writes must carry a
+      // valid positive selling price and nonnegative integer quantity.
       allow create: if isOwner()
-        && request.resource.data.branchId == userProfile().data.branchId;
+        && request.resource.data.branchId == userProfile().data.branchId
+        && request.resource.data.sellingPrice is number
+        && request.resource.data.sellingPrice > 0
+        && request.resource.data.stockQty is int
+        && request.resource.data.stockQty >= 0;
 
       allow update: if isOwner()
         && resource.data.branchId == userProfile().data.branchId
-        && request.resource.data.branchId == resource.data.branchId;
+        && request.resource.data.branchId == resource.data.branchId
+        && request.resource.data.sellingPrice is number
+        && request.resource.data.sellingPrice > 0
+        && request.resource.data.stockQty is int
+        && request.resource.data.stockQty >= 0;
 
+      // Protect approved V2 product history from accidental deletion.
       allow delete: if isOwner()
-        && resource.data.branchId == userProfile().data.branchId;
+        && resource.data.branchId == userProfile().data.branchId
+        && resource.data.get('schemaVersion', 1) != 2;
+    }
+
+
+    // V2 captures are append-only for staff. Employees cannot set price,
+    // approve an entry, or modify official inventory quantities.
+    match /registration_entries/{entryId} {
+      allow read: if sameBranch(resource.data.branchId);
+
+      allow create: if signedIn()
+        && sameBranch(request.resource.data.branchId)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.schemaVersion == 2
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0
+        && request.resource.data.quantity <= 1000000
+        && request.resource.data.nameCandidate is string
+        && request.resource.data.barcodeCandidate is string
+        && request.resource.data.productText is string
+        && request.resource.data.section is string
+        && request.resource.data.photoState in ['local_only', 'none']
+        && request.resource.data.keys().hasOnly([
+          'branchId', 'createdBy', 'quantity', 'nameCandidate',
+          'barcodeCandidate', 'productText', 'section', 'photoState',
+          'localPhotoPath', 'status', 'createdAt', 'schemaVersion'
+        ]);
+
+      allow update: if isOwner()
+        && sameBranch(resource.data.branchId)
+        && request.resource.data.branchId == resource.data.branchId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.quantity == resource.data.quantity
+        && resource.data.status == 'pending'
+        && (
+          (request.resource.data.status == 'approved'
+            && request.resource.data.reviewedName is string
+            && request.resource.data.reviewedName.size() > 0
+            && request.resource.data.reviewedSellingPrice is number
+            && request.resource.data.reviewedSellingPrice > 0
+            && request.resource.data.linkedProductId is string
+            && request.resource.data.linkedProductId.size() > 0
+            && request.resource.data.approvedBy == request.auth.uid)
+          ||
+          (request.resource.data.status == 'rejected'
+            && request.resource.data.reviewedBy == request.auth.uid)
+        );
+
+      allow delete: if false;
+    }
+
+    // Every approved V2 registration creates one immutable stock movement.
+    match /inventory_movements/{movementId} {
+      allow read: if sameBranch(resource.data.branchId);
+      allow create: if isOwner()
+        && sameBranch(request.resource.data.branchId)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.registrationEntryId == movementId
+        && request.resource.data.productId is string
+        && request.resource.data.type == 'opening_count'
+        && request.resource.data.quantityDelta is int
+        && request.resource.data.quantityDelta > 0
+        && request.resource.data.beforeQty is int
+        && request.resource.data.afterQty ==
+          request.resource.data.beforeQty + request.resource.data.quantityDelta;
+      allow update, delete: if false;
     }
 
     match /stock_count_sessions/{sessionId} {
