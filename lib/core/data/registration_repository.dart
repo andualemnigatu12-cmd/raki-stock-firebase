@@ -18,7 +18,7 @@ class RegistrationRepository {
       _db.collection('registration_entries');
 
   Stream<QuerySnapshot<Map<String, dynamic>>> watchEntries(String branchId) =>
-      _entries.where('branchId', isEqualTo: branchId).limit(500).snapshots(
+      _entries.where('branchId', isEqualTo: branchId).limit(2000).snapshots(
             includeMetadataChanges: true,
           );
 
