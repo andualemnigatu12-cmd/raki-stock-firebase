@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Raki Stock | Owner Workspace (Preview)</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#182337;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}header{background:#142b49;color:white;padding:18px clamp(18px,4vw,55px);display:flex;gap:15px;align-items:center;justify-content:space-between}header strong{font-size:21px}header span{display:block;color:#b7cde1;font-size:12px;margin-top:4px}main{max-width:1220px;margin:26px auto;padding:0 18px}.notice{background:#fff5df;border:1px solid #e6c37c;padding:14px 16px;border-radius:12px;margin-bottom:20px}.panel{background:white;border:1px solid #dce5ef;border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 5px 25px #18334d09}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:25px}h2{font-size:18px;margin:0 0 10px}p{color:#596a7e}button{border:0;background:#0966ad;color:white;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}button:disabled{opacity:.5}input{padding:12px;border:1px solid #ccd7e2;border-radius:9px;min-width:200px}form{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.muted{color:#66778a;font-size:13px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.metric{background:#eff5fa;border-radius:12px;padding:16px}.metric b{display:block;font-size:28px;margin-top:5px}.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 10px;border-bottom:1px solid #e7ecf2;text-align:left;vertical-align:top}th{background:#f6f9fc;font-size:12px;color:#4e6075}code{background:#e9eff6;padding:2px 5px;border-radius:4px}#status{font-size:13px}a{color:#0862a6}@media(max-width:700px){.grid{grid-template-columns:1fr}header{align-items:flex-start}form input{width:100%}}
+</style>
+</head>
+<body>
+<header><div><strong>Raki Stock</strong><span>Owner workspace · read-only preview</span></div><div id="status">Waiting for Firebase configuration</div></header>
+<main>
+<div class="notice"><strong>Safety mode is ON.</strong> This is an owner-only read-only preview. Approvals, prices, product edits, POS and stock changes are intentionally disabled until V2 database/security tests pass. Existing test records are not changed.</div>
+<section class="panel" id="loginPanel"><h1>Owner sign-in</h1><p id="setupNote">A Firebase web app configuration is required before signing in. Follow the README; never place a service-account key here.</p><form id="loginForm"><input id="email" type="email" autocomplete="username" placeholder="Owner email" required><input id="password" type="password" autocomplete="current-password" placeholder="Password" required><button type="submit">Sign in</button></form></section>
+<section id="dashboard" hidden>
+<div class="top"><h1>Shop overview</h1><button id="signout">Sign out</button></div>
+<div class="grid"><div class="metric">Registered products<b id="productCount">—</b></div><div class="metric">Captured count entries<b id="entryCount">—</b></div><div class="metric">Awaiting owner review<b id="pendingCount">—</b></div></div>
+<section class="panel" style="margin-top:18px"><div class="top"><h2>Count review queue</h2><span class="muted">Names, quantities and candidate barcodes — no live photo sharing yet</span></div><div class="tablewrap"><table><thead><tr><th>Session</th><th>Suggested name</th><th>Barcode</th><th>Qty</th><th>Review status</th><th>Photo</th></tr></thead><tbody id="entries"></tbody></table></div></section>
+<section class="panel"><h2>Catalog snapshot</h2><div class="tablewrap"><table><thead><tr><th>Product</th><th>Barcode</th><th>Stock</th><th>Selling price</th></tr></thead><tbody id="products"></tbody></table></div></section>
+<p class="muted">Preview uses legacy test records for verification only. No records are written or deleted. Showing up to 50 count sessions and 200 products.</p>
+</section>
+</main>
+<script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+import {getFirestore,doc,getDoc,collection,query,where,limit,getDocs} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+const el=id=>document.getElementById(id);
+const status=t=>{el('status').textContent=t};
+const cell=(tr,value)=>{const td=document.createElement('td');td.textContent=value==null?'—':String(value);tr.append(td)};
+const row=(parent,values)=>{const tr=document.createElement('tr');values.forEach(x=>cell(tr,x));parent.append(tr)};
+const cfg=window.RAKI_FIREBASE_CONFIG;
+if(!cfg?.apiKey||!cfg?.projectId||!cfg?.appId){el('loginForm').hidden=true;status('Firebase web configuration required');}
+else{
+const app=initializeApp(cfg),auth=getAuth(app),db=getFirestore(app);
+let refreshing=false;
+el('loginForm').addEventListener('submit',async ev=>{
+ev.preventDefault();status('Signing in…');
+try{await signInWithEmailAndPassword(auth,el('email').value,el('password').value)}
+catch(err){status('Sign-in failed: '+(err?.code||'unknown error'))}
+});
+el('signout').addEventListener('click',()=>signOut(auth));
+onAuthStateChanged(auth,async user=>{
+if(!user){el('loginPanel').hidden=false;el('dashboard').hidden=true;status('Signed out');return}
+if(refreshing)return;refreshing=true;
+try{
+const snap=await getDoc(doc(db,'users',user.uid)),profile=snap.data();
+if(!profile||profile.role!=='owner'||profile.active!==true||!profile.branchId){
+status('Access denied: active owner account required');await signOut(auth);return;
+}
+const branch=profile.branchId;
+el('loginPanel').hidden=true;el('dashboard').hidden=false;status('Owner · '+branch);
+const [products,sessions]=await Promise.all([
+getDocs(query(collection(db,'products'),where('branchId','==',branch),limit(200))),
+getDocs(query(collection(db,'stock_count_sessions'),where('branchId','==',branch),limit(50)))
+]);
+el('products').replaceChildren();el('entries').replaceChildren();
+products.forEach(d=>{const p=d.data();row(el('products'),[p.name,p.barcode,p.stockQty,p.sellingPrice==null?'Not set':p.sellingPrice+' ETB'])});
+let pending=0,entries=0;
+for(const s of sessions.docs){
+ const data=await getDocs(query(collection(db,'stock_count_sessions',s.id,'items'),limit(500)));
+ data.forEach(d=>{const v=d.data();entries++;if(v.reviewState!=='added')pending++;row(el('entries'),[s.id.slice(0,8),v.reviewedName||v.suggestedName||'Needs name',v.barcodeCandidate,v.quantity,v.reviewState||'pending',v.localPhotoPath?'Local on phone':'Not attached'])});
+}
+el('productCount').textContent=products.size+(products.size===200?'+':'');
+el('entryCount').textContent=entries;
+el('pendingCount').textContent=pending;
+}catch(err){status('Could not load shop data: '+(err?.code||err?.message||'error'))}
+finally{refreshing=false}
+});
+}
+</script>
+<script src="./firebase-config.js"></script>
+</body></html>
