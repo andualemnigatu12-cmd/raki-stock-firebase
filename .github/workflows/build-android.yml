@@ -117,6 +117,31 @@ jobs:
           app.write_text(text)
           PY
 
+      - name: Check owner website JavaScript and Firebase UI contract
+        run: |
+          node --input-type=module --check < owner-web/app.js
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import re
+          class IDs(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.ids = set()
+              def handle_starttag(self, tag, attrs):
+                  for key, value in attrs:
+                      if key == 'id':
+                          self.ids.add(value)
+          parser = IDs()
+          parser.feed(Path('owner-web/index.html').read_text())
+          source = Path('owner-web/app.js').read_text()
+          references = set(re.findall(r'\$\("([A-Za-z0-9-]+)"\)', source))
+          missing = references - parser.ids
+          if missing:
+              raise SystemExit(f'Owner web missing element IDs: {sorted(missing)}')
+          print(f'Checked {len(references)} referenced owner-web elements.')
+          PY
+
       - name: Get dependencies
         run: flutter pub get
 
