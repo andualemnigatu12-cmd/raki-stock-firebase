@@ -17,7 +17,7 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({
 const normalizeName = text => String(text ?? "")
   .toLowerCase().replace(/æ/g, "ae").replace(/œ/g, "oe")
   .normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
-  .replace(/[^\\p{L}\\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
+  .replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 const normalizeBarcode = text => String(text ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 const formatMoney = amount => new Intl.NumberFormat("en-ET", {
   minimumFractionDigits: 2, maximumFractionDigits: 2,
