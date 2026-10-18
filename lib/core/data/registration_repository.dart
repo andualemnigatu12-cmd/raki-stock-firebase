@@ -66,6 +66,29 @@ class RegistrationRepository {
     return ref.id;
   }
 
+  /// OCR may finish after Save & Next. Only fill fields that were empty when
+  /// the employee saved; never replace a manually confirmed label.
+  Future<void> patchRecognition({
+    required String entryId,
+    String? suggestedName,
+    String? barcode,
+    String? productText,
+  }) async {
+    final updates = <String, dynamic>{};
+    if (suggestedName?.trim().isNotEmpty == true) {
+      updates['nameCandidate'] = suggestedName!.trim();
+    }
+    if (barcode?.trim().isNotEmpty == true) {
+      updates['barcodeCandidate'] =
+          ProductCatalogRepository.normalizeBarcode(barcode!);
+    }
+    if (productText?.trim().isNotEmpty == true) {
+      updates['productText'] = productText!.trim();
+    }
+    if (updates.isEmpty) return;
+    await _entries.doc(entryId).update(updates);
+  }
+
   static String productId({
     required String branchId,
     required String normalizedName,
