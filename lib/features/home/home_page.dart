@@ -2,13 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../core/data/inventory_repository.dart';
+import '../../core/data/registration_repository.dart';
 import '../../core/theme/app_theme.dart';
-import '../count/fast_count_page.dart';
+import '../registration/registration_page.dart';
+import '../registration/registration_review_page.dart';
 import '../stock/product_scan_page.dart';
 import '../stock/products_page.dart';
-import '../stock/quick_add_product_page.dart';
-import '../stock/stock_review_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -18,31 +17,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final _repo = InventoryRepository();
-  bool _starting = false;
-
-  Future<void> _startCount(String branchId, String userId) async {
-    if (_starting) return;
-    setState(() => _starting = true);
-    try {
-      final session = await _repo.startOrContinueCount(
-        branchId: branchId,
-        userId: userId,
-      );
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => FastCountPage(
-            sessionId: session.id,
-            branchId: branchId,
-            userId: userId,
-          ),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _starting = false);
-    }
-  }
+  final _registration = RegistrationRepository();
 
   @override
   Widget build(BuildContext context) {
@@ -201,16 +176,32 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('Quick actions', style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  'V2 registration pilot',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Capture entries first. Stock changes only after an owner '
+                  'verifies name, variant, quantity and selling price.',
+                  style: TextStyle(color: AppTheme.mutedInk),
+                ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
                       child: _ActionCard(
-                        icon: Icons.camera_alt_outlined,
-                        title: 'Fast count',
-                        subtitle: 'Capture and register stock',
-                        onTap: () => _startCount(branchId, user.uid),
+                        icon: Icons.add_a_photo_outlined,
+                        title: 'Register products',
+                        subtitle: 'Capture to pending review',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => RegistrationPage(
+                              branchId: branchId,
+                              userId: user.uid,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -218,7 +209,7 @@ class _HomePageState extends State<HomePage> {
                       child: _ActionCard(
                         icon: Icons.inventory_2_outlined,
                         title: 'Products',
-                        subtitle: 'Search registered products',
+                        subtitle: 'Approved catalog and search',
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => ProductsPage(
@@ -232,88 +223,60 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ActionCard(
-                        icon: Icons.qr_code_scanner_rounded,
-                        title: 'Scan product',
-                        subtitle: 'Instant barcode or OCR match',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ProductScanPage(branchId: branchId),
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (isOwner) ...[
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _ActionCard(
-                          icon: Icons.add_box_outlined,
-                          title: 'Quick add',
-                          subtitle: 'Register without camera',
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => QuickAddProductPage(
-                                branchId: branchId,
-                                userId: user.uid,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
                 if (isOwner) ...[
                   const SizedBox(height: 12),
                   _ActionCard(
-                    icon: Icons.fact_check_outlined,
-                    title: 'Stock review',
-                    subtitle: 'Approve, correct and clean captured products',
+                    icon: Icons.verified_outlined,
+                    title: 'Owner review · V2',
+                    subtitle: 'Confirm name, price and add quantity atomically',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => StockReviewPage(branchId: branchId),
+                        builder: (_) => RegistrationReviewPage(
+                          branchId: branchId,
+                        ),
                       ),
                     ),
                   ),
                 ],
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: _repo.watchRecentSessions(branchId),
+                  stream: _registration.watchEntries(branchId),
                   builder: (context, snapshot) {
                     final docs = snapshot.data?.docs ?? const [];
-                    final drafts = docs
-                        .where((doc) => doc.data()['status'] == 'draft')
+                    final pending = docs
+                        .where((doc) => doc.data()['status'] == 'pending')
                         .length;
-                    final completed = docs
-                        .where((doc) => doc.data()['status'] == 'finalized')
+                    final approved = docs
+                        .where((doc) => doc.data()['status'] == 'approved')
                         .length;
                     return Row(
                       children: [
                         Expanded(
                           child: _MetricCard(
-                            label: 'Draft',
-                            value: '$drafts',
+                            label: 'Pending V2',
+                            value: '$pending',
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _MetricCard(
-                            label: 'Finished',
-                            value: '$completed',
+                            label: 'Approved V2',
+                            value: '$approved',
                           ),
                         ),
                       ],
                     );
                   },
                 ),
-                if (_starting) ...[
-                  const SizedBox(height: 14),
-                  const LinearProgressIndicator(),
-                ],
+                const SizedBox(height: 8),
+                const Text(
+                  'Pilot mode: do not use this for real cash sales yet. '
+                  'Old Fast Count, Quick Add and bulk approval are paused.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedInk,
+                  ),
+                ),
               ],
             ),
           ),
