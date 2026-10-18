@@ -48,6 +48,8 @@ class _RegistrationPageState extends State<RegistrationPage> {
   String _status = 'Ready to capture the first product.';
   int _savedCount = 0;
   int _photoToken = 0;
+  final Map<int, ({String id, bool nameEmpty, bool barcodeEmpty,
+      bool textEmpty})> _pendingRecognition = {};
 
   @override
   void initState() {
@@ -111,13 +113,21 @@ class _RegistrationPageState extends State<RegistrationPage> {
   }
 
   Future<void> _readText(String path, int token) async {
+    String? detectedBarcode;
+    String? recognizedName;
+    String? recognizedText;
+
     try {
       final codes = await _scanner
           .processImage(barcode_ml.InputImage.fromFilePath(path))
           .timeout(const Duration(milliseconds: 2000));
-      if (codes.isNotEmpty && mounted && token == _photoToken &&
+      if (codes.isNotEmpty) {
+        detectedBarcode = codes.first.rawValue?.trim();
+      }
+      if (detectedBarcode?.isNotEmpty == true &&
+          mounted && token == _photoToken &&
           _barcode.text.trim().isEmpty) {
-        _barcode.text = codes.first.rawValue ?? '';
+        _barcode.text = detectedBarcode!;
       }
     } catch (_) {}
 
@@ -125,17 +135,39 @@ class _RegistrationPageState extends State<RegistrationPage> {
       final result = await _ocr
           .readProduct(path)
           .timeout(const Duration(milliseconds: 4000));
+      recognizedName = result.suggestedName;
+      recognizedText = result.rawText;
       if (mounted && token == _photoToken) {
         if (_name.text.trim().isEmpty) {
-          _name.text = result.suggestedName ?? '';
+          _name.text = recognizedName ?? '';
         }
         if (_packaging.text.trim().isEmpty) {
-          _packaging.text = result.rawText ?? '';
+          _packaging.text = recognizedText ?? '';
         }
       }
     } catch (_) {
       // Difficult scripts/fonts are still allowed: owner reviews the text.
     }
+
+    // If Save & Next was tapped before OCR completed, update ONLY fields
+    // which were still empty at Save. Keep the employee's manual corrections.
+    final queued = _pendingRecognition.remove(token);
+    if (queued != null) {
+      unawaited(
+        _repo.patchRecognition(
+          entryId: queued.id,
+          suggestedName: queued.nameEmpty ? recognizedName : null,
+          barcode: queued.barcodeEmpty ? detectedBarcode : null,
+          productText: queued.textEmpty ? recognizedText : null,
+        ).catchError((Object error) {
+          if (mounted) {
+            setState(() => _status =
+                'Late text sync failed. Verify pending entry before review.');
+          }
+        }),
+      );
+    }
+
     if (mounted && token == _photoToken) {
       setState(() {
         _reading = false;
@@ -171,7 +203,12 @@ class _RegistrationPageState extends State<RegistrationPage> {
       // Each pending entry is uniquely identified and can never be approved twice.
       final entryId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
       final durablePhoto = await _retainPhoto(capturedPhoto, entryId);
-      _repo.queueEntry(
+      final captureToken = _photoToken;
+      final hadPendingOCR = _reading;
+      final nameWasEmpty = _name.text.trim().isEmpty;
+      final barcodeWasEmpty = _barcode.text.trim().isEmpty;
+      final textWasEmpty = _packaging.text.trim().isEmpty;
+      final queuedEntryId = _repo.queueEntry(
         branchId: widget.branchId,
         userId: widget.userId,
         quantity: qty,
@@ -187,6 +224,14 @@ class _RegistrationPageState extends State<RegistrationPage> {
           }
         },
       );
+      if (hadPendingOCR) {
+        _pendingRecognition[captureToken] = (
+          id: queuedEntryId,
+          nameEmpty: nameWasEmpty,
+          barcodeEmpty: barcodeWasEmpty,
+          textEmpty: textWasEmpty,
+        );
+      }
       if (!mounted) return;
       _savedCount++;
       _photoToken++;
