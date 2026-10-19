@@ -1,20 +1,32 @@
-# Raki Stock owner dashboard — SAFE PREVIEW
+# Raki Stock owner website — connected SAFE PREVIEW
 
-This directory is a **read-only owner dashboard prototype**, not a finished POS. It does not publish automatically and does not write to Firestore.
+**Status:** Firebase Web App configuration is wired into `firebase-config.js`, and `firebase.json` defines Firebase Hosting. The website is NOT yet deployed. This is a read-only review/catalog preview; it is not yet the production owner control panel.
 
-## Before deployment
+## Firebase project
 
-1. Register a **Web App** (</> icon) in the existing Firebase project `raki-stock-f3ab9`. Copy its public web config into `firebase-config.js`. NEVER add a Firebase service-account private key.
-2. Add the final GitHub Pages domain to Firebase Authentication > Settings > Authorized domains.
-3. Serve `web-owner/` using GitHub Pages (folder support depends on selected Pages source) or move static files to `docs/` only after confirming deployment approach. Do not enable automatic hosting without checking.
-4. Sign in with the existing owner Firebase email/password. The page checks active owner role from `users/{uid}` and reads only same-branch records under existing Firestore rules.
+- Firebase project: `raki-stock-f3ab9`
+- Web app: Raki Stock Owner Web
+- Hosting destination (after first successful deploy): `https://raki-stock-f3ab9.web.app` (verify actual URL in Firebase Hosting)
+- Firebase Authentication: sign in using existing **active owner** credentials.
+- Firestore: reads legacy test `products`, `stock_count_sessions` and nested `items`; it does not write to the database.
+- `firebase-config.js` is PUBLIC web configuration, not a secret. The active security boundary remains Auth + Firestore rules.
 
-## Current limitations
+## Deploy only website (Firebase Spark plan)
 
-- No approval, price entry, sales, inventory mutation, exports or employee dashboard here yet.
-- Shows at most 200 products and 50 sessions; counts at most 500 items per session, and reads sequentially. Counts are only a preview, not a complete audit.
-- Product photos are local paths on Android and cannot be opened from the website.
-- The web app config is not a secret; security depends on Firebase Auth and Firestore rules, not hidden JS keys.
-- Firestore V2 collections/rules are NOT deployed. Legacy Firestore data remains untouched.
+1. In Firebase Console > Build > Hosting, complete free Hosting setup. Use **Firebase Hosting**, not Firebase **App Hosting** (which may require Blaze billing).
+2. Install Firebase CLI locally if needed: `npm install -g firebase-tools`.
+3. Sign in: `firebase login`.
+4. In repository root deploy *only Hosting*: `firebase deploy --only hosting --project raki-stock-f3ab9`.
+5. Open the exact URL shown by Firebase and test with owner credentials. Add the hosting domain to Authentication > Settings > Authorized domains if the sign-in flow requires it.
+6. Do not run `firebase deploy` without `--only hosting`: Firestore/security rules must go through a separate reviewed change process.
 
-See `../docs/v2-data-migration.md` for migration and launch gates.
+## Preview limitations and protections
+
+- No product approval, selling price entry, sales, stock changes, exports, or destructive controls yet.
+- Product images are stored only on the Flutter phone. The web preview can display photo availability but **cannot fetch these images from another device**. Shared hosting must be designed separately without obliging a paid Firebase Storage plan.
+- Product list is limited to 200 and session list to 50 (up to 500 count entries per session); counts are illustrative, not complete audits.
+- The Firestore nested items query requires each count item to have `branchId`. Older test records missing this field will not appear.
+- We have not yet created or deployed the V2 collections or new Firestore rules. No existing test data was deleted.
+- Before handling real products, implement idempotent count movements, duplicate confirmation, owner-only price approval, cash reconciliation, secure sales, and reliable backup/restore and test these end to end.
+
+See [V2 migration and data-safety contract](../docs/v2-data-migration.md).
