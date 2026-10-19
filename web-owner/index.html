@@ -5,7 +5,7 @@
 <title>Raki Stock | Owner Workspace (Preview)</title>
 <style>
 :root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#182337;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}header{background:#142b49;color:white;padding:18px clamp(18px,4vw,55px);display:flex;gap:15px;align-items:center;justify-content:space-between}header strong{font-size:21px}header span{display:block;color:#b7cde1;font-size:12px;margin-top:4px}main{max-width:1220px;margin:26px auto;padding:0 18px}.notice{background:#fff5df;border:1px solid #e6c37c;padding:14px 16px;border-radius:12px;margin-bottom:20px}.panel{background:white;border:1px solid #dce5ef;border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 5px 25px #18334d09}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:25px}h2{font-size:18px;margin:0 0 10px}p{color:#596a7e}button{border:0;background:#0966ad;color:white;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}button:disabled{opacity:.5}input{padding:12px;border:1px solid #ccd7e2;border-radius:9px;min-width:200px}form{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.muted{color:#66778a;font-size:13px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.metric{background:#eff5fa;border-radius:12px;padding:16px}.metric b{display:block;font-size:28px;margin-top:5px}.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 10px;border-bottom:1px solid #e7ecf2;text-align:left;vertical-align:top}th{background:#f6f9fc;font-size:12px;color:#4e6075}code{background:#e9eff6;padding:2px 5px;border-radius:4px}#status{font-size:13px}a{color:#0862a6}@media(max-width:700px){.grid{grid-template-columns:1fr}header{align-items:flex-start}form input{width:100%}}
-</style>
+.reviewBtn{font-size:12px;padding:8px 11px;white-space:nowrap}.previewNote{font-size:12px;color:#985511;font-weight:650}.reviewDialog{width:min(520px,calc(100% - 28px));border:1px solid #cedbe8;border-radius:18px;padding:0;box-shadow:0 18px 70px #172b4666}.reviewDialog::backdrop{background:#11243e99}.dlgHead{padding:22px 24px;background:#ecf4fc}.dlgBody{padding:18px 24px}.field{display:grid;gap:5px;margin-bottom:13px}.field label{font-size:13px;font-weight:700}.field input{width:100%;max-width:none}.hint{color:#52657c;font-size:12px}.dlgActions{display:flex;gap:9px;justify-content:flex-end;padding:0 24px 24px;flex-wrap:wrap}.lightBtn{background:#eaf0f7;color:#1d304a}.statusText{white-space:pre-wrap;background:#eaf3fe;border-radius:10px;padding:12px;font-size:13px}.mutedPicture{font-size:12px;background:#fff2d9;padding:12px;border-radius:9px;margin:8px 0 14px}</style>
 </head>
 <body>
 <header><div><strong>Raki Stock</strong><span>Owner workspace · read-only preview</span></div><div id="status">Waiting for Firebase configuration</div></header>
@@ -15,11 +15,27 @@
 <section id="dashboard" hidden>
 <div class="top"><h1>Shop overview</h1><button id="signout">Sign out</button></div>
 <div class="grid"><div class="metric">Registered products<b id="productCount">—</b></div><div class="metric">Captured count entries<b id="entryCount">—</b></div><div class="metric">Awaiting owner review<b id="pendingCount">—</b></div></div>
-<section class="panel" style="margin-top:18px"><div class="top"><h2>Count review queue</h2><span class="muted">Names, quantities and candidate barcodes — no live photo sharing yet</span></div><div class="tablewrap"><table><thead><tr><th>Session</th><th>Suggested name</th><th>Barcode</th><th>Qty</th><th>Review status</th><th>Photo</th></tr></thead><tbody id="entries"></tbody></table></div></section>
+<section class="panel" style="margin-top:18px"><div class="top"><h2>Count review queue</h2><span class="muted">Names, quantities and candidate barcodes — no live photo sharing yet</span></div><div class="tablewrap"><table><thead><tr><th>Session</th><th>Suggested name</th><th>Barcode</th><th>Qty</th><th>Review status</th><th>Photo</th><th>Action</th></tr></thead><tbody id="entries"></tbody></table></div></section>
 <section class="panel"><h2>Catalog snapshot</h2><div class="tablewrap"><table><thead><tr><th>Product</th><th>Barcode</th><th>Stock</th><th>Selling price</th></tr></thead><tbody id="products"></tbody></table></div></section>
 <p class="muted">Preview uses legacy test records for verification only. No records are written or deleted. Showing up to 50 count sessions and 200 products.</p>
 </section>
 </main>
+<dialog class="reviewDialog" id="reviewDialog" aria-labelledby="reviewTitle">
+  <div class="dlgHead"><h2 id="reviewTitle">Review product — PREVIEW ONLY</h2><p class="hint">Confirm the real packaging and prices before approval. Changes here are not saved.</p></div>
+  <form id="reviewForm" method="dialog">
+    <div class="dlgBody">
+      <div id="reviewPicture" class="mutedPicture">Photo is local to the capturing phone and cannot be shown here.</div>
+      <div class="field"><label for="reviewName">Verified product name</label><input id="reviewName" maxlength="180" required></div>
+      <div class="field"><label for="reviewBarcode">Barcode (optional)</label><input id="reviewBarcode" maxlength="64"></div>
+      <div class="field"><label for="reviewQty">Count quantity</label><input id="reviewQty" inputmode="numeric" type="number" step="1" min="1" required></div>
+      <div class="field"><label for="reviewPrice">Owner selling price (ETB)</label><input id="reviewPrice" inputmode="decimal" type="number" step="0.01" min="0.01" required></div>
+      <p id="reviewMatch" class="hint">No product match checked yet.</p>
+      <p id="reviewResult" class="statusText" aria-live="polite">This is a draft preview. No product will be approved.</p>
+    </div>
+    <div class="dlgActions"><button id="reviewClose" class="lightBtn" type="button">Close</button><button id="reviewValidate" type="button">Validate draft</button></div>
+  </form>
+</dialog>
+
 <script src="./firebase-config.js"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
@@ -28,12 +44,50 @@ import {getFirestore,doc,getDoc,collection,query,where,limit,getDocs} from 'http
 const el=id=>document.getElementById(id);
 const status=t=>{el('status').textContent=t};
 const cell=(tr,value)=>{const td=document.createElement('td');td.textContent=value==null?'—':String(value);tr.append(td)};
-const row=(parent,values)=>{const tr=document.createElement('tr');values.forEach(x=>cell(tr,x));parent.append(tr)};
+const row=(parent,values)=>{const tr=document.createElement('tr');values.forEach(x=>cell(tr,x));parent.append(tr);return tr};
 const cfg=window.RAKI_FIREBASE_CONFIG;
 if(!cfg?.apiKey||!cfg?.projectId||!cfg?.appId){el('loginForm').hidden=true;status('Firebase web configuration required');}
 else{
 const app=initializeApp(cfg),auth=getAuth(app),db=getFirestore(app);
 let refreshing=false;
+let currentCatalog=[];
+let currentReview=null;
+const normalize=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const reviewDialog=el('reviewDialog');
+el('reviewClose').addEventListener('click',()=>reviewDialog.close());
+function presentReview(entry){
+  currentReview=entry;
+  el('reviewName').value=entry.reviewedName||entry.suggestedName||'';
+  el('reviewBarcode').value=entry.barcodeCandidate||'';
+  el('reviewQty').value=String(entry.quantity??'');
+  el('reviewPrice').value=entry.reviewedSellingPrice>0?String(entry.reviewedSellingPrice):'';
+  el('reviewPicture').textContent=entry.localPhotoPath
+    ?'Photo is stored on the capturing Android phone. Verify it on that phone before approving.'
+    :'No shared product photograph is available. Verify the physical packaging before approving.';
+  el('reviewResult').textContent='Preview only. No Firebase records will change.';
+  el('reviewMatch').textContent='Duplicate check is preliminary; confirm size/unit and packaging.';
+  reviewDialog.showModal();
+}
+el('reviewValidate').addEventListener('click',()=>{
+  if(!currentReview)return;
+  const name=el('reviewName').value.trim(),barcode=el('reviewBarcode').value.trim();
+  const quantity=Number(el('reviewQty').value),price=Number(el('reviewPrice').value);
+  const problems=[];
+  if(!name)problems.push('Product name is required');
+  if(!Number.isSafeInteger(quantity)||quantity<=0)problems.push('Quantity must be a positive whole number');
+  if(el('reviewPrice').value.trim()===''||!Number.isFinite(price)||price<=0)problems.push('A positive selling price is required');
+  const candidate=currentCatalog.filter(p=>
+    (barcode&&p.barcode&&String(p.barcode)===barcode)||
+    (normalize(p.name)===normalize(name)&&normalize(name)!=='')
+  );
+  el('reviewMatch').textContent=candidate.length
+    ?'Possible existing product: '+candidate.slice(0,2).map(p=>p.name+' ('+(p.stockQty??'?')+' current stock)').join('; ')+'. Confirm pack size before combining quantities.'
+    :'No exact local-catalog match; a similar item may still exist. Manual verification required.';
+  el('reviewResult').textContent=problems.length
+    ?'Cannot approve: '+problems.join('; ')+'.'
+    :'Draft validated: '+name+' · '+quantity+' units · '+price.toFixed(2)+' ETB. This is a PREVIEW ONLY; no data has been saved and no approval has occurred.';
+});
+
 el('loginForm').addEventListener('submit',async ev=>{
 ev.preventDefault();status('Signing in…');
 try{await signInWithEmailAndPassword(auth,el('email').value,el('password').value)}
@@ -54,12 +108,21 @@ const [products,sessions]=await Promise.all([
 getDocs(query(collection(db,'products'),where('branchId','==',branch),limit(200))),
 getDocs(query(collection(db,'stock_count_sessions'),where('branchId','==',branch),limit(50)))
 ]);
+currentCatalog=products.docs.map(doc=>doc.data());
 el('products').replaceChildren();el('entries').replaceChildren();
 products.forEach(d=>{const p=d.data();row(el('products'),[p.name,p.barcode,p.stockQty,p.sellingPrice==null?'Not set':p.sellingPrice+' ETB'])});
 let pending=0,entries=0;
 for(const s of sessions.docs){
  const data=await getDocs(query(collection(db,'stock_count_sessions',s.id,'items'),where('branchId','==',branch),limit(500)));
- data.forEach(d=>{const v=d.data();entries++;if(v.reviewState!=='added')pending++;row(el('entries'),[s.id.slice(0,8),v.reviewedName||v.suggestedName||'Needs name',v.barcodeCandidate,v.quantity,v.reviewState||'pending',v.localPhotoPath?'Local on phone':'Not attached'])});
+ data.forEach(d=>{
+  const v=d.data();entries++;if(v.reviewState!=='added')pending++;
+  const tr=row(el('entries'),[s.id.slice(0,8),v.reviewedName||v.suggestedName||'Needs name',v.barcodeCandidate,v.quantity,v.reviewState||'pending',v.localPhotoPath?'Local on phone':'Not attached']);
+  const td=document.createElement('td');
+  const button=document.createElement('button');
+  button.type='button';button.className='reviewBtn';button.textContent=v.reviewState==='added'?'View draft':'Review draft';
+  button.addEventListener('click',()=>presentReview(v));
+  td.append(button);tr.append(td);
+});
 }
 el('productCount').textContent=products.size+(products.size===200?'+':'');
 el('entryCount').textContent=entries;
