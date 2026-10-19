@@ -1,0 +1,42 @@
+name: Deploy Raki Stock Owner Website
+
+# The first deployment is manually triggered after a dedicated Firebase Hosting
+# service-account JSON has been stored as a GitHub Actions repository secret.
+# No local PC installation is required. Enable push trigger after pilot review.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: raki-owner-hosting
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout owner website
+        uses: actions/checkout@v4
+
+      - name: Check Firebase Hosting authorization
+        shell: bash
+        env:
+          FIREBASE_HOSTING_SERVICE_ACCOUNT: ${{ secrets.RAKI_FIREBASE_HOSTING_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_HOSTING_SERVICE_ACCOUNT" ]; then
+            echo "::error::GitHub Actions secret RAKI_FIREBASE_HOSTING_SERVICE_ACCOUNT is missing. Add the dedicated Firebase Hosting service account JSON before deploying."
+            exit 1
+          fi
+          if [ ! -f web-owner/index.html ] || [ ! -f web-owner/firebase-config.js ]; then
+            echo "::error::Owner website build files are missing."
+            exit 1
+          fi
+
+      - name: Deploy only the owner preview to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: ${{ secrets.RAKI_FIREBASE_HOSTING_SERVICE_ACCOUNT }}
+          projectId: raki-stock-f3ab9
+          channelId: live
