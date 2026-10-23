@@ -1,10 +1,16 @@
 name: Deploy Raki Stock Owner Website
 
-# The first deployment is manually triggered after a dedicated Firebase Hosting
-# service-account JSON has been stored as a GitHub Actions repository secret.
-# No local PC installation is required. Enable push trigger after pilot review.
+# Automatically deploy main-branch owner website changes to Firebase Hosting.
+# Manual workflow_dispatch remains available. No local PC tools are required.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "web-owner/**"
+      - "firebase.json"
+      - ".github/workflows/deploy-owner-web.yml"
 
 permissions:
   contents: read
