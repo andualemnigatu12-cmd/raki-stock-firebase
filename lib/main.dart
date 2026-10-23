@@ -34,7 +34,7 @@ class RakiApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Raki Stock',
-      theme: AppTheme.light,
+      theme: AppTheme.dark,
       home: firebaseError == null
           ? const _AuthGate()
           : FirebaseSetupPage(error: firebaseError.toString()),
