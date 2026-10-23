@@ -1,174 +1,480 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Raki Stock | Owner Workspace (Preview)</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0e16">
+<meta name="description" content="Raki Stock owner workspace for secure inventory review.">
+<title>Raki Stock — Owner Workspace</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <style>
-:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#182337;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}header{background:#142b49;color:white;padding:18px clamp(18px,4vw,55px);display:flex;gap:15px;align-items:center;justify-content:space-between}header strong{font-size:21px}header span{display:block;color:#b7cde1;font-size:12px;margin-top:4px}main{max-width:1220px;margin:26px auto;padding:0 18px}.notice{background:#fff5df;border:1px solid #e6c37c;padding:14px 16px;border-radius:12px;margin-bottom:20px}.panel{background:white;border:1px solid #dce5ef;border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 5px 25px #18334d09}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:25px}h2{font-size:18px;margin:0 0 10px}p{color:#596a7e}button{border:0;background:#0966ad;color:white;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}button:disabled{opacity:.5}input{padding:12px;border:1px solid #ccd7e2;border-radius:9px;min-width:200px}form{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.muted{color:#66778a;font-size:13px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.metric{background:#eff5fa;border-radius:12px;padding:16px}.metric b{display:block;font-size:28px;margin-top:5px}.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 10px;border-bottom:1px solid #e7ecf2;text-align:left;vertical-align:top}th{background:#f6f9fc;font-size:12px;color:#4e6075}code{background:#e9eff6;padding:2px 5px;border-radius:4px}#status{font-size:13px}a{color:#0862a6}@media(max-width:700px){.grid{grid-template-columns:1fr}header{align-items:flex-start}form input{width:100%}}
-.reviewBtn{font-size:12px;padding:8px 11px;white-space:nowrap}.previewNote{font-size:12px;color:#985511;font-weight:650}.reviewDialog{width:min(520px,calc(100% - 28px));border:1px solid #cedbe8;border-radius:18px;padding:0;box-shadow:0 18px 70px #172b4666}.reviewDialog::backdrop{background:#11243e99}.dlgHead{padding:22px 24px;background:#ecf4fc}.dlgBody{padding:18px 24px}.field{display:grid;gap:5px;margin-bottom:13px}.field label{font-size:13px;font-weight:700}.field input{width:100%;max-width:none}.hint{color:#52657c;font-size:12px}.dlgActions{display:flex;gap:9px;justify-content:flex-end;padding:0 24px 24px;flex-wrap:wrap}.lightBtn{background:#eaf0f7;color:#1d304a}.statusText{white-space:pre-wrap;background:#eaf3fe;border-radius:10px;padding:12px;font-size:13px}.mutedPicture{font-size:12px;background:#fff2d9;padding:12px;border-radius:9px;margin:8px 0 14px}.productPhoto{height:48px;width:48px;border-radius:10px;object-fit:cover;border:1px solid #d7e3f0;background:#eef4fa}.photoFallback{height:48px;width:48px;border-radius:10px;background:#eef4fa;border:1px solid #d7e3f0;color:#52657c;display:inline-flex;align-items:center;justify-content:center;font-size:11px}#reviewImage[hidden]{display:none}.reviewImage{width:100%;max-height:260px;object-fit:contain;border-radius:12px;background:#eef4fa;display:block;margin-bottom:10px}</style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
+:root{color-scheme:dark;--bg:#080d16;--side:#0d1320;--panel:#131c2c;--panel2:#192438;--panel3:#1e2d43;--line:#2a3447;--muted:#8d9db2;--white:#f8fbff;--blue:#4487ff;--cyan:#63d5ff;--gold:#e5bc6e;--red:#ff9a94;--green:#71deb6;--shadow:0 18px 48px rgba(0,0,0,.25);font-family:"DM Sans",sans-serif}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--white);min-width:320px}button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.55}a{color:inherit;text-decoration:none}svg{height:20px;width:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}button:focus-visible,input:focus-visible{outline:2px solid #91caff;outline-offset:2px}[hidden]{display:none!important}
+.shell{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;background:#0b111d;border-right:1px solid #263043;display:flex;flex-direction:column;padding:25px 14px;z-index:40}
+.brand{display:flex;align-items:center;gap:11px;padding:2px 12px 32px}
+.brandmark{height:43px;width:43px;display:grid;place-items:center;border-radius:14px;color:white;background:linear-gradient(135deg,#295ac6,#51bbff);box-shadow:0 8px 30px #1e62db44}
+.brandmark svg{height:25px;width:25px}.brandname{font-family:Manrope,sans-serif;font-weight:800;letter-spacing:.01em;font-size:18px}.brandtiny{color:#8194b0;font-size:11px;margin-top:2px}
+.navhead{padding:16px 14px 9px;font-size:10px;letter-spacing:.14em;color:#687e99;font-weight:800}
+.navbutton{width:100%;border:0;background:transparent;color:#9baac0;display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px;border-radius:11px;font-weight:700;font-size:13px;margin:2px 0;transition:background .18s,color .18s}
+.navbutton svg{height:18px;width:18px}.navbutton:hover,.navbutton.active{color:#e8f5ff;background:#202f4b}.navbutton.active{box-shadow:inset 3px 0 #54a6ff}.navbutton small{margin-left:auto;background:#29426a;color:#9cd4ff;padding:2px 7px;border-radius:8px;font-size:11px}
+.navbutton.locked{color:#728096}.navbutton.locked small{background:#1c2534;color:#98a4b5;font-size:10px}
+.sidefoot{margin-top:auto;padding:16px 12px 5px}.sidefootbox{padding:14px;border:1px solid #324052;background:linear-gradient(140deg,#19283d,#101827);border-radius:14px}.sidefootbox strong{font-size:12px}.sidefootbox p{margin:5px 0 0;color:#9eafc5;font-size:11px;line-height:1.55}
+.main{min-width:0;padding:0 33px 50px;max-width:1700px;width:100%;margin:auto}
+.topbar{height:90px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid #1e2937;margin-bottom:26px}
+.toplabel{font-size:12px;color:#95a7bc;letter-spacing:.04em}.toplabel b{color:#eaf5ff;font-weight:800}
+.righttools{display:flex;align-items:center;gap:12px}
+.searchbox{position:relative;width:min(310px,32vw)}.searchbox svg{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:#8ea0b8;width:17px;height:17px}
+.searchbox input{width:100%;background:#162133;border:1px solid #304057;color:#fff;border-radius:10px;padding:12px 12px 12px 43px;font-size:12px}.searchbox input::placeholder{color:#8d9bb1}
+.iconbutton{height:40px;width:40px;display:grid;place-items:center;border-radius:10px;border:1px solid #334056;background:#162134;color:#adc3df}
+.account{display:flex;gap:10px;align-items:center;margin-left:8px}
+.avatar{height:37px;width:37px;display:grid;place-items:center;border-radius:50%;background:linear-gradient(140deg,#3a6dec,#54c5e4);font-weight:800;font-size:14px}
+.account strong{display:block;font-size:12px;max-width:170px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.account small{display:block;color:#8295ad;margin-top:3px;font-size:11px}
+.mobilebar{display:none}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.16em;font-weight:800;color:#82c8ff}
+.hero{position:relative;min-height:290px;border:1px solid #314666;display:flex;overflow:hidden;align-items:center;border-radius:22px;padding:35px 42px;background:radial-gradient(circle at 80% 25%,#245386 0%,transparent 35%),linear-gradient(112deg,#12244d 4%,#14243b 51%,#111a29 100%);box-shadow:var(--shadow)}
+.hero:before{content:"";position:absolute;border:1px solid #609df037;border-radius:50%;width:380px;height:380px;right:-36px;top:-100px;box-shadow:0 0 0 36px #60aaff0a,0 0 0 72px #60aaff09}.hero:after{content:"";position:absolute;right:80px;top:8%;width:135px;height:135px;border-radius:32px;background:linear-gradient(145deg,#9bd2ff1c,#265eb31e);transform:rotate(25deg);filter:blur(.2px)}
+.herotext{position:relative;z-index:2;max-width:630px}
+.herotext h1{font-family:Manrope,sans-serif;font-size:clamp(27px,3vw,43px);letter-spacing:-.04em;line-height:1.16;margin:17px 0 14px}.herotext h1 em{font-style:normal;color:#7bceff}
+.herotext p{font-size:14px;color:#b1c2d7;line-height:1.75;max-width:490px;margin:0 0 21px}
+.tagrow,.buttonrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tag{display:inline-flex;align-items:center;gap:7px;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#b4e6ff;border-radius:99px;border:1px solid #6aaad258;padding:8px 11px;background:#11274b8a}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px #77d9ad70}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;border:0;border-radius:10px;padding:11px 17px;font-size:12px;font-weight:800;min-height:39px}
+.btn svg{height:16px;width:16px}
+.btn.primary{background:#4b94ff;color:#07101d}.btn.primary:hover{background:#78b8ff}
+.btn.secondary{background:#263650;color:#e7f1ff;border:1px solid #3d5474}.btn.secondary:hover{background:#344a6a}
+.btn.subtle{background:transparent;color:#a9c9eb;border:1px solid #384a61}
+.heroart{position:absolute;right:35px;bottom:16px;z-index:1;height:205px;width:275px;transform:rotate(-7deg);opacity:.9}
+.artcard{position:absolute;width:150px;height:190px;left:70px;top:9px;border:1px solid #7fc8ff4d;border-radius:17px;background:linear-gradient(155deg,#305d9b,#122e50);box-shadow:0 23px 35px #01091488;display:flex;flex-direction:column;align-items:center;padding:20px}
+.artglyph{display:grid;place-items:center;width:85px;height:85px;background:#66b7fe2a;border-radius:20px;color:#b6e1ff}
+.artglyph svg{height:47px;width:47px}.artline{margin-top:16px;height:6px;width:88px;background:#b0d4fd68;border-radius:8px}.artline.short{width:58px;margin-top:9px}
+.artchip{position:absolute;left:-5px;bottom:12px;display:flex;gap:9px;align-items:center;background:#243d60;border:1px solid #70bfff73;padding:11px 14px;border-radius:12px;box-shadow:0 14px 30px #0008;transform:rotate(7deg);font-size:11px;font-weight:800}.artchip svg{color:#7fd8ba}
+.sectionrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:30px 0 16px}.sectionrow h2{font-size:21px;letter-spacing:-.025em;font-family:Manrope,sans-serif;margin:0}.sectionrow p{color:var(--muted);font-size:12px;margin:6px 0 0}
+.textlink{border:0;background:none;color:#79c6ff;font-weight:800;font-size:12px;white-space:nowrap}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin-top:23px}
+.stat{padding:20px 22px;border:1px solid #283648;border-radius:15px;background:linear-gradient(155deg,#172238,#111b29);min-width:0}
+.stathead{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#a8bad0;font-size:12px;font-weight:700}
+.staticon{height:37px;width:37px;border-radius:11px;display:grid;place-items:center;color:#9dd5ff;background:#203e68}.staticon.gold{color:#eecb88;background:#51432b}.staticon.green{color:#8ce6c2;background:#1c443b}
+.statnum{font:800 34px Manrope,sans-serif;letter-spacing:-.045em;margin:15px 0 3px}.statnote{font-size:11px;color:#8097af}
+.rowgrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(255px,.8fr);gap:18px}
+.panel{border-radius:17px;background:#111a29;border:1px solid #27354b;padding:20px;min-width:0}
+.paneltitle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:17px}.paneltitle h3{font-size:16px;font-family:Manrope,sans-serif;margin:0}.paneltitle small{font-size:11px;color:#8ea4bc}
+.queue{display:grid;gap:10px}.queueitem{display:flex;align-items:center;gap:13px;background:#182337;border:1px solid #2a3850;border-radius:13px;padding:12px}
+.queueinfo{min-width:0;flex:1}.queuename{font-size:12px;font-weight:800;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.queuemeta{font-size:11px;color:#8d9fb7;margin-top:5px}.miniphot{height:49px;width:49px;border-radius:10px;flex-shrink:0;background:linear-gradient(135deg,#234369,#182941);display:grid;place-items:center;color:#7aadd2;overflow:hidden}
+.miniphot img{width:100%;height:100%;object-fit:cover}.miniphot svg{height:23px;width:23px}
+.queueneed{font-size:10px;color:#f1ce8b;padding:5px 9px;border:1px solid #7b653b;background:#50412a33;border-radius:7px;white-space:nowrap}
+.empty{padding:24px 18px;color:#8fa2b9;text-align:center;font-size:13px;border:1px dashed #34485f;border-radius:12px;line-height:1.6}
+.infocard{background:linear-gradient(145deg,#213253,#15283f);border:1px solid #37577f;border-radius:14px;padding:18px;margin-bottom:13px}
+.infocard .big{font:800 27px Manrope,sans-serif;margin:10px 0 5px}.infocard small{color:#abc4e0;line-height:1.6;font-size:11px}
+.statusline{display:flex;justify-content:space-between;align-items:center;margin:18px 0 9px;font-size:12px;color:#adc0d6}
+.track{height:9px;background:#2d3b50;border-radius:20px;overflow:hidden}.progress{width:0;height:100%;background:linear-gradient(90deg,#418fff,#78d1ff);border-radius:20px;transition:width .25s}
+.detailbox{padding:14px 0;border-top:1px solid #283648;color:#95abc3;font-size:12px;line-height:1.7}
+.library{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:16px}
+.product{min-width:0;text-align:left;border:1px solid #2b3850;background:#121c2b;border-radius:14px;padding:0;overflow:hidden;color:#fff;transition:transform .18s,border-color .18s,box-shadow .18s}
+.product:hover{transform:translateY(-3px);border-color:#64a8ea;box-shadow:0 18px 28px #0006}
+.productvisual{position:relative;height:164px;display:grid;place-items:center;background:radial-gradient(circle at 40% 30%,#2b5b91 0%,#1a2e4a 46%,#111d31 100%);overflow:hidden}
+.productvisual img{width:100%;height:100%;object-fit:contain;padding:10px;filter:drop-shadow(0 13px 14px #0007)}
+.productvisual .placeholderIcon{color:#8bb4e4;opacity:.9}.placeholderIcon svg{height:56px;width:56px;stroke-width:1.1}
+.thumbLabel{position:absolute;right:9px;top:9px;font-size:9px;padding:6px 8px;border-radius:6px;background:#101a2dcc;color:#e1ecf9;font-weight:800;letter-spacing:.02em}
+.productcopy{padding:13px 13px 15px}.productname{font-size:12px;font-weight:800;line-height:1.45;min-height:36px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.productmeta{display:flex;justify-content:space-between;gap:4px;font-size:11px;color:#87a5c6;margin-top:10px}.price{color:#d8eaff;font-size:12px;font-weight:800}.price.unset{color:#eabf7d}
+.chips{display:flex;flex-wrap:wrap;gap:9px;margin:18px 0 22px}.chip{border:1px solid #324158;color:#9db4ce;background:#182336;padding:9px 13px;border-radius:999px;font-size:11px;font-weight:800}.chip[aria-pressed=true]{border-color:#5ca7ed;background:#294c75;color:#d7f0ff}
+.pagehead{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin:22px 0 26px}.pagehead h1{font:800 clamp(24px,3vw,34px) Manrope,sans-serif;letter-spacing:-.035em;margin:7px 0}.pagehead p{color:#96a9bf;font-size:13px;line-height:1.65;margin:4px 0 0}
+.note{display:flex;align-items:flex-start;gap:10px;padding:15px 17px;background:#211e18;border:1px solid #695032;border-radius:12px;color:#e3c7a0;font-size:12px;line-height:1.6;margin:17px 0 23px}.note svg{color:#eabd7e}
+.reviewlist{display:grid;gap:12px}.reviewcard{display:grid;grid-template-columns:70px minmax(0,1fr) auto;gap:16px;align-items:center;background:#152032;border:1px solid #2e3b50;padding:14px;border-radius:14px}
+.reviewcard h3{font-size:13px;line-height:1.45;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.reviewcard p{margin:0;color:#93a8bf;font-size:11px;line-height:1.6}
+.reviewcard .miniphot{height:70px;width:70px}.statuspill{border-radius:20px;padding:5px 9px;background:#3c372a;color:#f2cf8c;font-size:10px;font-weight:800;display:inline-block;margin-top:8px}.statuspill.done{background:#1b3a32;color:#93e7c6}
+.reportGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:15px}.reportNumber{font:800 32px Manrope,sans-serif;margin:12px 0}
+.barrows{display:grid;gap:13px;margin:20px 0 5px}.barline{display:grid;grid-template-columns:115px 1fr 35px;gap:12px;align-items:center;font-size:11px;color:#a9bbd0}
+.barline .track{height:8px}.barline .progress{background:#74b7ff}
+.footer{font-size:11px;color:#687e98;margin:36px 0 0;line-height:1.6;border-top:1px solid #203046;padding-top:18px}
+.logincover{position:fixed;inset:0;z-index:110;background:radial-gradient(circle at 70% 15%,#19457c 0%,transparent 35%),linear-gradient(120deg,#0e1d39,#080d16 75%);display:grid;place-items:center;padding:22px}
+.logincard{background:#111b2a;border:1px solid #304564;box-shadow:0 30px 70px #0008;width:min(450px,100%);padding:32px;border-radius:20px}
+.logincard h1{font:800 27px Manrope,sans-serif;margin:20px 0 8px}.logincard p{font-size:13px;color:#a3b5cb;line-height:1.7}.field{display:grid;gap:8px;margin:15px 0}.field label{color:#d3e3f5;font-size:12px;font-weight:800}.field input{min-height:43px;padding:11px 13px;background:#0e1828;border:1px solid #35465e;border-radius:9px;color:#fff;width:100%}.field input::placeholder{color:#798ca4}.full{width:100%}.help{color:#8b9eb5;font-size:12px;line-height:1.6}
+.dialog{border:1px solid #395070;background:#121c2c;color:#f5faff;border-radius:19px;box-shadow:0 25px 90px #000c;padding:0;width:min(550px,calc(100% - 28px));max-height:90vh;overflow:auto}.dialog::backdrop{background:#030814ce;backdrop-filter:blur(5px)}.dhead{padding:22px 25px 16px;border-bottom:1px solid #2b3a51;display:flex;justify-content:space-between;align-items:flex-start}.dhead h2{font:800 19px Manrope,sans-serif;margin:0 0 6px}.dhead p{color:#88a5c4;font-size:12px;line-height:1.6;margin:0}.dbody{padding:18px 25px 25px}.dialogImage{width:100%;height:170px;border-radius:12px;object-fit:contain;background:linear-gradient(120deg,#213d66,#0d1c31);margin-bottom:9px}.photoHint{padding:11px 12px;background:#2d2a25;color:#eac595;border-radius:8px;font-size:11px;line-height:1.6;margin-bottom:15px}.dialogactions{display:flex;gap:9px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap}.result{padding:13px;border:1px solid #325681;background:#193251;border-radius:9px;color:#bcdfff;font-size:12px;line-height:1.65;margin-top:12px}
+.toast{position:fixed;bottom:22px;right:24px;z-index:130;padding:12px 16px;border-radius:11px;background:#2a3c57;border:1px solid #53799d;color:#ecfaff;box-shadow:0 15px 40px #0009;font-size:12px;max-width:min(460px,calc(100vw - 30px))}
+@media(max-width:1160px){.heroart{opacity:.35}.rowgrid{grid-template-columns:1fr}.main{padding-left:23px;padding-right:23px}.sidebar{width:218px}.shell{grid-template-columns:218px minmax(0,1fr)}}
+@media(max-width:820px){.shell{display:block}.sidebar{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .2s ease;width:255px;box-shadow:0 20px 40px #0008}.sidebar.open{transform:translateX(0)}.mobilebar{display:flex;align-items:center;gap:10px;padding:14px 0 6px}.topbar{height:65px;margin-bottom:18px}.toplabel{display:none}.main{padding:0 18px 45px}.account div:last-child{display:none}.hero{min-height:255px;padding:27px}.stats{gap:10px}.stat{padding:17px}.searchbox{width:min(300px,48vw)}}
+@media(max-width:570px){.topbar{height:auto;min-height:60px}.righttools{gap:8px}.searchbox{width:min(200px,49vw)}.searchbox input{padding:11px 7px 11px 35px}.searchbox svg{left:11px}.account{margin-left:0}.hero{padding:23px;min-height:310px}.heroart{display:none}.herotext h1{font-size:29px}.stats{grid-template-columns:1fr}.stat{display:grid;grid-template-columns:1fr auto;gap:5px;align-items:center}.statnum{grid-row:1 / 3;grid-column:2;margin:0;font-size:27px}.rowgrid{grid-template-columns:1fr}.sectionrow h2{font-size:18px}.library{grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.productvisual{height:140px}.productcopy{padding:11px}.reviewcard{grid-template-columns:52px minmax(0,1fr);gap:10px}.reviewcard .miniphot{height:52px;width:52px}.reviewcard .btn{grid-column:1 / -1}.reviewcard h3{white-space:normal}.reportGrid{grid-template-columns:1fr}.pagehead{display:block}.pagehead .btn{margin-top:13px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
+</style>
 </head>
 <body>
-<header><div><strong>Raki Stock</strong><span>Owner workspace · read-only preview</span></div><div id="status">Waiting for Firebase configuration</div></header>
-<main>
-<div class="notice"><strong>Safety mode is ON.</strong> This is an owner-only read-only preview. Approvals, prices, product edits, POS and stock changes are intentionally disabled until V2 database/security tests pass. Existing test records are not changed.</div>
-<section class="panel" id="loginPanel"><h1>Owner sign-in</h1><p id="setupNote">Use your existing Raki Stock owner account. This preview cannot change shop data.</p><form id="loginForm"><input id="email" type="email" autocomplete="username" placeholder="Owner email" required><input id="password" type="password" autocomplete="current-password" placeholder="Password" required><button type="submit">Sign in</button></form></section>
-<section id="dashboard" hidden>
-<div class="top"><h1>Shop overview</h1><button id="signout">Sign out</button></div>
-<div class="grid"><div class="metric">Registered products<b id="productCount">—</b></div><div class="metric">Captured count entries<b id="entryCount">—</b></div><div class="metric">Awaiting owner review<b id="pendingCount">—</b></div></div>
-<section class="panel" style="margin-top:18px"><div class="top"><h2>Count review queue</h2><span class="muted">Names, quantities and candidate barcodes — no live photo sharing yet</span></div><div class="tablewrap"><table><thead><tr><th>Session</th><th>Suggested name</th><th>Barcode</th><th>Qty</th><th>Review status</th><th>Photo</th><th>Action</th></tr></thead><tbody id="entries"></tbody></table></div></section>
-<section class="panel"><h2>Catalog snapshot</h2><div class="tablewrap"><table><thead><tr><th>Photo</th><th>Product</th><th>Barcode</th><th>Stock</th><th>Selling price</th></tr></thead><tbody id="products"></tbody></table></div></section>
-<p class="muted">Preview uses legacy test records for verification only. No records are written or deleted. Showing up to 50 count sessions and 200 products.</p>
-</section>
-</main>
-<dialog class="reviewDialog" id="reviewDialog" aria-labelledby="reviewTitle">
-  <div class="dlgHead"><h2 id="reviewTitle">Review product — PREVIEW ONLY</h2><p class="hint">Confirm the real packaging and prices before approval. Changes here are not saved.</p></div>
-  <form id="reviewForm" method="dialog">
-    <div class="dlgBody">
-      <img id="reviewImage" class="reviewImage" alt="Captured product photograph" hidden><div id="reviewPicture" class="mutedPicture">Photo is local to the capturing phone and cannot be shown here.</div>
-      <div class="field"><label for="reviewName">Verified product name</label><input id="reviewName" maxlength="180" required></div>
-      <div class="field"><label for="reviewBarcode">Barcode (optional)</label><input id="reviewBarcode" maxlength="64"></div>
-      <div class="field"><label for="reviewQty">Count quantity</label><input id="reviewQty" inputmode="numeric" type="number" step="1" min="1" required></div>
-      <div class="field"><label for="reviewPrice">Owner selling price (ETB)</label><input id="reviewPrice" inputmode="decimal" type="number" step="0.01" min="0.01" required></div>
-      <p id="reviewMatch" class="hint">No product match checked yet.</p>
-      <p id="reviewResult" class="statusText" aria-live="polite">This is a draft preview. No product will be approved.</p>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-bag" viewBox="0 0 24 24"><path d="M4 8h16l-1.2 12H5.2L4 8Z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="m3 7 9-4 9 4v10l-9 4-9-4V7Z"/><path d="m3 7 9 4 9-4M12 11v10"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+  <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5h6M9 10h6M9 14h6"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V11M10 20V5M16 20v-8M22 20V8"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h13"/><path d="M15 13h6"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M2 21v-2a7 7 0 0 1 14 0v2M18 5a3 3 0 0 1 0 6M22 21v-2a6 6 0 0 0-4-5.6"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M9 2h6l.6 3 2 1 3-1 3 5-2.4 2 0 2L23 16l-3 5-3-1-2 1-.6 3H9l-.6-3-2-1-3 1-3-5 2.4-2v-2L.4 10l3-5 3 1 2-1L9 2Z" transform="translate(0 -1) scale(.95)"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 9a7 7 0 0 1 12-2l2 5M4 12l2 5a7 7 0 0 0 12-2"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 3H4v18h6M14 8l5 4-5 4M8 12h11"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 7h4l2-3h5l2 3h3v13H4V7Z"/><circle cx="12" cy="13" r="3"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m12 3 10 18H2L12 3Z"/><path d="M12 9v5M12 18h.01"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 17 12-12 3 3L7 20H4v-3ZM14 7l3 3"/></symbol>
+</svg>
+<div id="login" class="logincover">
+  <div class="logincard">
+    <div class="brandmark"><svg><use href="#i-bag"/></svg></div>
+    <div class="eyebrow" style="margin-top:24px">PRIVATE OWNER WORKSPACE</div>
+    <h1>Welcome back to<br>Raki Stock.</h1>
+    <p>Sign in with the same Firebase owner account you use on the Raki Stock Android app.</p>
+    <form id="loginform">
+      <div class="field"><label for="email">Owner email</label><input id="email" type="email" autocomplete="username" placeholder="owner@example.com" required></div>
+      <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Enter your password" required></div>
+      <button id="loginBtn" type="submit" class="btn primary full">Sign in securely <svg><use href="#i-right"/></svg></button>
+      <p id="loginStatus" class="help" role="status">Firebase owner login · no new account required</p>
+    </form>
+  </div>
+</div>
+
+<div id="shell" class="shell" hidden>
+  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+    <div class="brand"><div class="brandmark"><svg><use href="#i-bag"/></svg></div><div><div class="brandname">RAKI STOCK</div><div class="brandtiny">OWNER WORKSPACE</div></div></div>
+    <div class="navhead">WORKSPACE</div>
+    <button class="navbutton active" data-nav="dashboard"><svg><use href="#i-grid"/></svg>Overview</button>
+    <button class="navbutton" data-nav="products"><svg><use href="#i-box"/></svg>Product Library</button>
+    <button class="navbutton" data-nav="review"><svg><use href="#i-clipboard"/></svg>Review Queue <small id="reviewBadge">—</small></button>
+    <button class="navbutton" data-nav="reports"><svg><use href="#i-chart"/></svg>Stock Reports</button>
+    <div class="navhead" style="margin-top:13px">UPCOMING</div>
+    <button class="navbutton locked" data-lock="Sales & Checkout"><svg><use href="#i-wallet"/></svg>Sales & Checkout<small>SOON</small></button>
+    <button class="navbutton locked" data-lock="Employee Management"><svg><use href="#i-users"/></svg>Employees<small>SOON</small></button>
+    <div class="sidefoot"><div class="sidefootbox"><div class="eyebrow" style="font-size:9px">SAFE PREVIEW</div><strong>Protected test workspace</strong><p>Data is read-only. Price approval and stock changes are disabled until accuracy tests pass.</p></div></div>
+  </aside>
+  <div class="main">
+    <div class="mobilebar"><button class="iconbutton" id="menuBtn" aria-label="Open navigation"><svg><use href="#i-menu"/></svg></button><strong style="font-size:15px">RAKI STOCK</strong></div>
+    <header class="topbar">
+      <div class="toplabel">OWNER / <b id="breadcrumb">Overview</b></div>
+      <div class="righttools">
+        <div class="searchbox"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Search products..." aria-label="Search products"></div>
+        <button class="iconbutton" id="reload" title="Refresh Firebase data" aria-label="Refresh Firebase data"><svg><use href="#i-refresh"/></svg></button>
+        <button class="iconbutton" id="signout" title="Sign out" aria-label="Sign out"><svg><use href="#i-logout"/></svg></button>
+        <div class="account"><div class="avatar">R</div><div><strong id="ownerLabel">Shop owner</strong><small id="branchLabel">Raki Shop</small></div></div>
+      </div>
+    </header>
+    <div id="dashboardPage" data-page="dashboard">
+      <section class="hero">
+        <div class="herotext">
+          <div class="tagrow"><span class="tag"><span class="dot"></span> Connected to Firebase</span><span class="tag">Read-only preview</span></div>
+          <h1>Your shop.<br><em>Completely in view.</em></h1>
+          <p>A clear view of your products, counting progress and items that need attention. Every important decision starts with verified records.</p>
+          <div class="buttonrow"><button class="btn primary" data-goto="review">Review products <svg><use href="#i-right"/></svg></button><button class="btn secondary" data-goto="products">Browse catalog</button></div>
+        </div>
+        <div class="heroart" aria-hidden="true"><div class="artcard"><div class="artglyph"><svg><use href="#i-bag"/></svg></div><div class="artline"></div><div class="artline short"></div></div><div class="artchip"><svg><use href="#i-check"/></svg> Records protected</div></div>
+      </section>
+      <div class="stats">
+        <div class="stat"><div class="stathead">Registered products <span class="staticon"><svg><use href="#i-box"/></svg></span></div><div class="statnum" id="statProducts">—</div><div class="statnote">Current catalog snapshot</div></div>
+        <div class="stat"><div class="stathead">Captured count entries <span class="staticon gold"><svg><use href="#i-camera"/></svg></span></div><div class="statnum" id="statEntries">—</div><div class="statnote">Recorded stocktake entries</div></div>
+        <div class="stat"><div class="stathead">Needs owner review <span class="staticon green"><svg><use href="#i-clipboard"/></svg></span></div><div class="statnum" id="statPending">—</div><div class="statnote">Unapproved entries in the preview</div></div>
+      </div>
+      <div class="sectionrow"><div><h2>Work that needs attention</h2><p>Pending items captured from the Android app</p></div><button class="textlink" data-goto="review">See all reviews →</button></div>
+      <div class="rowgrid">
+        <div class="panel"><div class="paneltitle"><h3>Pending product review</h3><small>Owner verification</small></div><div class="queue" id="dashboardQueue"><div class="empty">Loading review queue...</div></div></div>
+        <div class="panel"><div class="paneltitle"><h3>Stocktake progress</h3><small>Current test records</small></div><div class="infocard"><div class="eyebrow">Reviewed entries</div><div class="big" id="approvedPercent">—</div><small>Based on entries included in this preview, not the full shop inventory.</small><div class="statusline"><span>Reviewed share</span><strong id="approvedText">—</strong></div><div class="track"><div class="progress" id="approvedBar"></div></div></div><div class="detailbox">Captured photos currently live on the phone unless shared-photo upload is configured and verified. Missing images are shown clearly.</div></div>
+      </div>
+      <div class="sectionrow"><div><h2>Explore your products</h2><p>Visual catalog, directly from your Firebase records</p></div><button class="textlink" data-goto="products">View entire library →</button></div>
+      <div class="library" id="featuredProducts"><div class="empty">Loading products...</div></div>
     </div>
-    <div class="dlgActions"><button id="reviewClose" class="lightBtn" type="button">Close</button><button id="reviewValidate" type="button">Validate draft</button></div>
-  </form>
+
+    <div id="productsPage" data-page="products" hidden>
+      <div class="pagehead"><div><div class="eyebrow">THE COLLECTION</div><h1>Product Library</h1><p>Browse registered items, check stock and selling prices, and open product details.</p></div><button class="btn secondary" id="productsRefresh">Refresh catalog <svg><use href="#i-refresh"/></svg></button></div>
+      <div class="note"><svg><use href="#i-alert"/></svg><div>Catalog access is read-only during the V2 pilot. Missing prices and photos are shown as missing rather than invented. Product changes will require owner approval.</div></div>
+      <div class="chips" id="productFilters">
+        <button class="chip" data-filter="all" aria-pressed="true">All products</button>
+        <button class="chip" data-filter="stock" aria-pressed="false">In stock</button>
+        <button class="chip" data-filter="missingPrice" aria-pressed="false">Missing price</button>
+        <button class="chip" data-filter="missingPhoto" aria-pressed="false">Missing photo</button>
+      </div>
+      <div class="sectionrow"><div><h2 id="resultTitle">All registered products</h2><p id="resultCount">Loading...</p></div></div>
+      <div class="library" id="allProducts"></div>
+    </div>
+
+    <div id="reviewPage" data-page="review" hidden>
+      <div class="pagehead"><div><div class="eyebrow">APPROVAL CENTER</div><h1>Product Review Queue</h1><p>Inspect OCR suggestions and prepare names, quantities and selling prices for owner approval.</p></div><span class="tag">Draft validation only</span></div>
+      <div class="note"><svg><use href="#i-lock"/></svg><div><strong>No live approvals or quantity changes.</strong> Validate a draft to check its required fields and potential duplicates. Changes are not saved until the new audit-safe approval process is implemented.</div></div>
+      <div class="chips" id="reviewFilters">
+        <button class="chip" data-review-filter="pending" aria-pressed="true">Pending review</button>
+        <button class="chip" data-review-filter="all" aria-pressed="false">All captured</button>
+        <button class="chip" data-review-filter="added" aria-pressed="false">Already reviewed</button>
+      </div>
+      <div class="sectionrow"><div><h2 id="reviewListTitle">Awaiting your review</h2><p id="reviewListCount"></p></div></div>
+      <div class="reviewlist" id="reviewList"></div>
+    </div>
+
+    <div id="reportsPage" data-page="reports" hidden>
+      <div class="pagehead"><div><div class="eyebrow">SHOP INSIGHTS</div><h1>Stock Reports</h1><p>Accurate summaries of currently accessible test stocktake records. Sales and profit are not enabled yet.</p></div></div>
+      <div class="reportGrid">
+        <div class="panel"><div class="paneltitle"><h3>Captured count records</h3></div><div class="reportNumber" id="reportCount">—</div><div class="help">All loaded stock count items; not unique product types.</div><div class="barrows"><div class="barline"><span>Reviewed entries</span><div class="track"><div class="progress" id="reportApprovedBar"></div></div><b id="reportApproved">—</b></div><div class="barline"><span>Pending entries</span><div class="track"><div class="progress" id="reportPendingBar"></div></div><b id="reportPending">—</b></div></div></div>
+        <div class="panel"><div class="paneltitle"><h3>Registered catalog</h3></div><div class="reportNumber" id="reportProducts">—</div><div class="help">Catalog records within the current preview limits.</div><div class="detailbox"><span id="reportMissing">—</span> products lack a positive selling price.</div><div class="detailbox">Opening stock must be reconciled before relying on inventory totals.</div></div>
+      </div>
+      <div class="note"><svg><use href="#i-alert"/></svg><div>Sales, income, cash balances, profit and employee activity reports are intentionally unavailable until the POS and stock movement ledger are built and tested. This page does not fabricate financial figures.</div></div>
+    </div>
+    <footer class="footer">RAKI STOCK · OWNER WORKSPACE · FIREBASE TEST RECORDS · Read-only V2 design preview. Showing at most 200 products, 50 sessions and 500 entries per session. Counts may be incomplete. No shop data is changed by this website.</footer>
+  </div>
+</div>
+
+<dialog id="reviewDialog" class="dialog" aria-labelledby="reviewDialogTitle">
+  <div class="dhead"><div><h2 id="reviewDialogTitle">Verify product details</h2><p>Owner review draft — nothing will be saved.</p></div><button class="iconbutton" type="button" data-close="reviewDialog" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+  <div class="dbody">
+    <img id="reviewPhoto" class="dialogImage" alt="Product photograph" hidden>
+    <div id="reviewPhotoNote" class="photoHint">Captured photo has not been shared online.</div>
+    <form id="reviewForm" novalidate>
+      <div class="field"><label for="reviewName">Verified name</label><input id="reviewName" maxlength="180" required></div>
+      <div class="field"><label for="reviewBarcode">Barcode (optional)</label><input id="reviewBarcode" maxlength="64"></div>
+      <div class="field"><label for="reviewQty">Physical count quantity</label><input id="reviewQty" type="number" step="1" min="1" required></div>
+      <div class="field"><label for="reviewPrice">Selling price (ETB) — required</label><input id="reviewPrice" type="number" step="0.01" min="0.01" inputmode="decimal" required></div>
+      <p id="duplicateHint" class="help">Check for an existing product before registering another.</p>
+      <div id="reviewResult" class="result" role="status">Preview only — no approval or database write.</div>
+      <div class="dialogactions"><button class="btn secondary" data-close="reviewDialog" type="button">Cancel</button><button class="btn primary" type="submit">Validate draft <svg><use href="#i-check"/></svg></button></div>
+    </form>
+  </div>
 </dialog>
+<dialog id="productDialog" class="dialog" aria-labelledby="detailTitle">
+  <div class="dhead"><div><h2 id="detailTitle">Product details</h2><p>Catalog information · view only</p></div><button class="iconbutton" data-close="productDialog" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+  <div class="dbody"><img id="detailPhoto" class="dialogImage" alt="Product photograph" hidden><div id="detailPhotoNote" class="photoHint">No online product photograph.</div><div id="detailFields"></div><div class="dialogactions"><button class="btn secondary" data-close="productDialog" type="button">Close</button></div></div>
+</dialog>
+<div id="toast" class="toast" role="status" hidden></div>
 
 <script src="./firebase-config.js"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {getFirestore,doc,getDoc,collection,query,where,limit,getDocs} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
 const el=id=>document.getElementById(id);
-const status=t=>{el('status').textContent=t};
-const cell=(tr,value)=>{const td=document.createElement('td');td.textContent=value==null?'—':String(value);tr.append(td)};
-const row=(parent,values)=>{const tr=document.createElement('tr');values.forEach(x=>cell(tr,x));parent.append(tr);return tr};
-// Only load HTTPS links from the selected storage bucket, never arbitrary URLs.
-function verifiedPhotoUrl(value){
- try {
-  if(typeof value!=='string'||value.length>1800)return null;
-  const u=new URL(value);
-  if(u.protocol!=='https:'||!u.hostname.endsWith('.supabase.co'))return null;
-  if(!u.pathname.startsWith('/storage/v1/object/public/raki-product-photos/'))return null;
-  return u.toString();
- }catch(_){return null}
-}
-function photoCell(tr,photoUrl,hasLocalPhoto){
- const td=document.createElement('td'),url=verifiedPhotoUrl(photoUrl);
- if(url){
-   const img=document.createElement('img');
-   img.className='productPhoto';img.alt='Product photo';img.loading='lazy';
-   img.referrerPolicy='no-referrer';img.src=url;
-   img.onerror=()=>{td.textContent='Image unavailable';};
-   td.append(img);
- }else{
-   const fallback=document.createElement('span');
-   fallback.className='photoFallback';
-   fallback.textContent=hasLocalPhoto?'Phone only':'No photo';
-   td.append(fallback);
- }
- tr.append(td);
-}
-
+const state={branch:null,user:null,products:[],entries:[],loaded:false,page:'dashboard',productFilter:'all',reviewFilter:'pending',search:'',loading:false};
 const cfg=window.RAKI_FIREBASE_CONFIG;
-if(!cfg?.apiKey||!cfg?.projectId||!cfg?.appId){el('loginForm').hidden=true;status('Firebase web configuration required');}
-else{
-const app=initializeApp(cfg),auth=getAuth(app),db=getFirestore(app);
-let refreshing=false;
-let currentCatalog=[];
-let currentReview=null;
-const normalize=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-const reviewDialog=el('reviewDialog');
-el('reviewClose').addEventListener('click',()=>reviewDialog.close());
-function presentReview(entry){
-  currentReview=entry;
-  el('reviewName').value=entry.reviewedName||entry.suggestedName||'';
-  el('reviewBarcode').value=entry.barcodeCandidate||'';
-  el('reviewQty').value=String(entry.quantity??'');
-  el('reviewPrice').value=entry.reviewedSellingPrice>0?String(entry.reviewedSellingPrice):'';
-  const url=verifiedPhotoUrl(entry.photoUrl);
-  el('reviewImage').hidden=!url;
-  if(url){el('reviewImage').src=url;}
-  else{el('reviewImage').removeAttribute('src');}
-  el('reviewPicture').textContent=url
-    ?'Shared photo available. Verify its name and size against the actual package.'
-    :entry.localPhotoPath
-      ?'Phone-only photo: upload not completed. Verify on the capturing phone.'
-      :'No product photograph is available. Verify the physical package before approving.';
-  el('reviewResult').textContent='Preview only. No Firebase records will change.';
-  el('reviewMatch').textContent='Duplicate check is preliminary; confirm size/unit and packaging.';
-  reviewDialog.showModal();
+const show=id=>el(id).hidden=false;
+const hide=id=>el(id).hidden=true;
+const countText=(n)=>Number.isFinite(n)?n.toLocaleString('en-US'):'—';
+const norm=(s)=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const setText=(id,value)=>{el(id).textContent=String(value)};
+const icon=(name)=>{const s=document.createElementNS('http://www.w3.org/2000/svg','svg');const u=document.createElementNS('http://www.w3.org/2000/svg','use');u.setAttribute('href','#i-'+name);s.append(u);return s};
+const displayName=(p)=>String(p.reviewedName||p.name||p.suggestedName||p.nameCandidate||'Unnamed product');
+let auth,db,currentReview=null,toastTimeout=null;
+const message=t=>{setText('toast',t);show('toast');if(toastTimeout)clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>hide('toast'),4600)};
+function photoUrl(src){
+  if(typeof src!=='string'||src.length>1800)return null;
+  try{const u=new URL(src);if(u.protocol!=='https:'||u.hostname!=='ssvgskhlpgynkfmledca.supabase.co')return null;
+    if(!u.pathname.startsWith('/storage/v1/object/public/raki-product-photos/'))return null;return u.href;
+  }catch(_){return null}
 }
-el('reviewValidate').addEventListener('click',()=>{
-  if(!currentReview)return;
-  const name=el('reviewName').value.trim(),barcode=el('reviewBarcode').value.trim();
-  const quantity=Number(el('reviewQty').value),price=Number(el('reviewPrice').value);
-  const problems=[];
-  if(!name)problems.push('Product name is required');
-  if(!Number.isSafeInteger(quantity)||quantity<=0)problems.push('Quantity must be a positive whole number');
-  if(el('reviewPrice').value.trim()===''||!Number.isFinite(price)||price<=0)problems.push('A positive selling price is required');
-  const candidate=currentCatalog.filter(p=>
-    (barcode&&p.barcode&&String(p.barcode)===barcode)||
-    (normalize(p.name)===normalize(name)&&normalize(name)!=='')
-  );
-  el('reviewMatch').textContent=candidate.length
-    ?'Possible existing product: '+candidate.slice(0,2).map(p=>p.name+' ('+(p.stockQty??'?')+' current stock)').join('; ')+'. Confirm pack size before combining quantities.'
-    :'No exact local-catalog match; a similar item may still exist. Manual verification required.';
-  el('reviewResult').textContent=problems.length
-    ?'Cannot approve: '+problems.join('; ')+'.'
-    :'Draft validated: '+name+' · '+quantity+' units · '+price.toFixed(2)+' ETB. This is a PREVIEW ONLY; no data has been saved and no approval has occurred.';
-});
-
-el('loginForm').addEventListener('submit',async ev=>{
-ev.preventDefault();status('Signing in…');
-try{await signInWithEmailAndPassword(auth,el('email').value,el('password').value)}
-catch(err){status('Sign-in failed: '+(err?.code||'unknown error'))}
-});
+function imageOrPlaceholder(src,className='miniphot'){
+ const wrap=document.createElement('div');wrap.className=className;
+ const url=photoUrl(src);
+ if(url){
+  const img=document.createElement('img');img.alt='Product photograph';img.loading='lazy';img.referrerPolicy='no-referrer';img.src=url;
+  img.onerror=()=>{img.remove();wrap.append(icon('camera'))};wrap.append(img);
+ }else wrap.append(icon('box'));
+ return wrap;
+}
+function setDialogPhoto(id,noteId,item){
+ const img=el(id),note=el(noteId),url=photoUrl(item.photoUrl);
+ img.hidden=!url;if(url)img.src=url;else img.removeAttribute('src');
+ note.textContent=url?'Uploaded product photo. Verify the actual package size and identity.':
+ item.localPhotoPath?'Photo stored on the original Android phone only. Shared upload has not been confirmed.':
+ 'No shared product photo. Please verify the actual package before approval.';
+}
+function clearChildren(node){node.replaceChildren()}
+function makeProductCard(p){
+ const btn=document.createElement('button');btn.className='product';btn.type='button';
+ const visual=document.createElement('div');visual.className='productvisual';
+ const url=photoUrl(p.photoUrl);
+ if(url){
+  const img=document.createElement('img');img.alt='';img.loading='lazy';img.src=url;img.onerror=()=>{img.remove();visual.append(imageOrPlaceholder(null,'placeholderIcon'))};visual.append(img);
+ }else{const placeholder=document.createElement('div');placeholder.className='placeholderIcon';placeholder.append(icon('box'));visual.append(placeholder)}
+ const label=document.createElement('span');label.className='thumbLabel';label.textContent=(Number(p.stockQty)||0)>0?'IN STOCK':'STOCK 0';visual.append(label);
+ const copy=document.createElement('div');copy.className='productcopy';
+ const title=document.createElement('div');title.className='productname';title.textContent=displayName(p);copy.append(title);
+ const info=document.createElement('div');info.className='productmeta';
+ const price=document.createElement('span');const amount=Number(p.sellingPrice);
+ price.className='price'+(!(amount>0)?' unset':'');
+ price.textContent=amount>0?amount.toLocaleString('en-US')+' ETB':'PRICE NOT SET';
+ const stock=document.createElement('span');stock.textContent='Qty '+countText(Number(p.stockQty)||0);
+ info.append(price,stock);copy.append(info);btn.append(visual,copy);
+ btn.addEventListener('click',()=>showProduct(p));return btn;
+}
+function showProduct(p){
+ setText('detailTitle',displayName(p));setDialogPhoto('detailPhoto','detailPhotoNote',p);
+ const body=el('detailFields');clearChildren(body);
+ for(const [label,value] of [['Barcode',p.barcode||'Not provided'],['Stock quantity',countText(Number(p.stockQty)||0)],['Selling price',Number(p.sellingPrice)>0?Number(p.sellingPrice).toLocaleString('en-US')+' ETB':'Not set'],['Approval',p.status||'Legacy catalog record']]){
+  const line=document.createElement('div');line.className='detailbox';const b=document.createElement('strong');b.textContent=label+': ';line.append(b,document.createTextNode(String(value)));body.append(line)
+ }el('productDialog').showModal();
+}
+function setActivePage(page){
+ if(!['dashboard','products','review','reports'].includes(page))return;
+ state.page=page;
+ document.querySelectorAll('[data-page]').forEach(n=>n.hidden=n.dataset.page!==page);
+ document.querySelectorAll('[data-nav]').forEach(n=>{const selected=n.dataset.nav===page;n.classList.toggle('active',selected);n.setAttribute('aria-current',selected?'page':'false')});
+ setText('breadcrumb',{dashboard:'Overview',products:'Product Library',review:'Review Queue',reports:'Stock Reports'}[page]);
+ el('sidebar').classList.remove('open');window.scrollTo(0,0);render();
+}
+function renderStats(){
+ const pending=state.entries.filter(x=>x.reviewState!=='added').length;
+ const approved=state.entries.length-pending;
+ setText('statProducts',countText(state.products.length));
+ setText('statEntries',countText(state.entries.length));
+ setText('statPending',countText(pending));
+ setText('reviewBadge',countText(pending));
+ const percentage=state.entries.length?Math.round(approved/state.entries.length*100):0;
+ setText('approvedPercent',percentage+'%');
+ setText('approvedText',countText(approved)+' / '+countText(state.entries.length));
+ el('approvedBar').style.width=percentage+'%';
+ setText('reportCount',countText(state.entries.length));
+ setText('reportProducts',countText(state.products.length));
+ setText('reportMissing',countText(state.products.filter(p=>!(Number(p.sellingPrice)>0)).length));
+ setText('reportApproved',countText(approved));setText('reportPending',countText(pending));
+ el('reportApprovedBar').style.width=percentage+'%';el('reportPendingBar').style.width=(100-percentage)+'%';
+}
+function makeReviewRow(entry,compact=false){
+ const node=document.createElement('div');node.className=compact?'queueitem':'reviewcard';
+ node.append(imageOrPlaceholder(entry.photoUrl));
+ const inf=document.createElement('div');inf.className=compact?'queueinfo':'';
+ const title=document.createElement(compact?'div':'h3');title.className=compact?'queuename':'';
+ title.textContent=displayName(entry);
+ const meta=document.createElement('p');meta.className=compact?'queuemeta':'';
+ meta.textContent='Qty '+(entry.quantity??'—')+' · '+(entry.barcodeCandidate||'No barcode')+' · '+(entry.sessionShort||'Count session');
+ inf.append(title,meta);
+ if(!compact){const badge=document.createElement('span');badge.className='statuspill'+(entry.reviewState==='added'?' done':'');badge.textContent=entry.reviewState==='added'?'Reviewed':'Pending';inf.append(badge)}
+ node.append(inf);
+ if(compact){
+  const b=document.createElement('button');b.className='btn secondary';b.style.padding='8px 10px';b.textContent='Review';b.addEventListener('click',()=>showReview(entry));node.append(b);
+ }else{
+  const b=document.createElement('button');b.className='btn secondary';b.append(icon('edit'),document.createTextNode(' Review draft'));b.addEventListener('click',()=>showReview(entry));node.append(b)
+ }
+ return node;
+}
+function renderDashboard(){
+ const queue=el('dashboardQueue');clearChildren(queue);
+ const pending=state.entries.filter(e=>e.reviewState!=='added').slice(0,4);
+ if(pending.length)pending.forEach(x=>queue.append(makeReviewRow(x,true)));
+ else queue.append(empty('No pending products in the loaded test entries.'));
+ const feature=el('featuredProducts');clearChildren(feature);
+ if(state.products.length)state.products.slice(0,8).forEach(x=>feature.append(makeProductCard(x)));
+ else feature.append(empty('There are no registered products yet.'));
+}
+function empty(t){const n=document.createElement('div');n.className='empty';n.textContent=t;return n}
+function renderProducts(){
+ const grid=el('allProducts');clearChildren(grid);
+ let items=state.products;
+ if(state.productFilter==='stock')items=items.filter(p=>(Number(p.stockQty)||0)>0);
+ if(state.productFilter==='missingPrice')items=items.filter(p=>!(Number(p.sellingPrice)>0));
+ if(state.productFilter==='missingPhoto')items=items.filter(p=>!photoUrl(p.photoUrl));
+ if(state.search)items=items.filter(p=>[displayName(p),p.barcode,p.normalizedName].some(s=>norm(s).includes(norm(state.search))));
+ setText('resultCount',countText(items.length)+' matching registered products · maximum 200 loaded');
+ if(items.length)items.forEach(p=>grid.append(makeProductCard(p)));
+ else grid.append(empty('No products match this filter.'));
+}
+function renderReview(){
+ const list=el('reviewList');clearChildren(list);
+ let items=state.entries;
+ if(state.reviewFilter==='pending')items=items.filter(e=>e.reviewState!=='added');
+ if(state.reviewFilter==='added')items=items.filter(e=>e.reviewState==='added');
+ if(state.search)items=items.filter(e=>[displayName(e),e.barcodeCandidate,e.sessionShort].some(s=>norm(s).includes(norm(state.search))));
+ setText('reviewListCount',countText(items.length)+' matching captured entries');
+ if(items.length)items.forEach(e=>list.append(makeReviewRow(e)));
+ else list.append(empty('No count entries match this filter.'));
+}
+function render(){if(!state.loaded)return;renderStats();renderDashboard();if(state.page==='products')renderProducts();if(state.page==='review')renderReview()}
+function showReview(entry){
+ currentReview=entry;
+ setText('reviewDialogTitle',entry.reviewState==='added'?'Inspect reviewed item':'Review captured product');
+ setDialogPhoto('reviewPhoto','reviewPhotoNote',entry);
+ el('reviewName').value=entry.reviewedName||entry.suggestedName||entry.nameCandidate||'';
+ el('reviewBarcode').value=entry.barcodeCandidate||'';
+ el('reviewQty').value=entry.quantity??'';
+ el('reviewPrice').value=Number(entry.reviewedSellingPrice)>0?Number(entry.reviewedSellingPrice):'';
+ setText('reviewResult','Preview only — this draft has not changed Firebase records.');
+ setText('duplicateHint','Use the barcode and pack size to confirm whether the product already exists.');
+ el('reviewDialog').showModal();
+}
+function validateDraft(ev){
+ ev.preventDefault();
+ if(!currentReview)return;
+ const name=el('reviewName').value.trim(),barcode=el('reviewBarcode').value.trim();
+ const q=Number(el('reviewQty').value),raw=el('reviewPrice').value,price=Number(raw);
+ const errors=[];
+ if(!name)errors.push('Verified name is required.');
+ if(!Number.isSafeInteger(q)||q<=0)errors.push('Quantity must be a positive whole number.');
+ if(raw.trim()===''||!Number.isFinite(price)||price<=0)errors.push('A positive selling price is required.');
+ const same=state.products.filter(p=>(barcode&&String(p.barcode||'')===barcode)||(norm(name)&&norm(displayName(p))===norm(name)));
+ setText('duplicateHint',same.length?'Possible existing product: '+same.slice(0,2).map(p=>displayName(p)+' (stock '+(p.stockQty??'?')+')').join(', ')+'. Confirm the pack size.':'No exact match in the loaded catalog. Do not assume it is unique.');
+ setText('reviewResult',errors.length?errors.join(' '):'Draft fields valid: '+name+' · '+q+' units · '+price.toFixed(2)+' ETB. No Firebase data was saved. This is not an approval.');
+}
+async function loadShop(){
+ if(!state.branch||state.loading)return;
+ state.loading=true;el('reload').disabled=true;
+ try{
+  const branch=state.branch;
+  const [catalog,sessions]=await Promise.all([
+   getDocs(query(collection(db,'products'),where('branchId','==',branch),limit(200))),
+   getDocs(query(collection(db,'stock_count_sessions'),where('branchId','==',branch),limit(50)))
+  ]);
+  const entries=[];
+  // Keep reads moderate in the safe preview. Each count entry has its own
+  // branchId; filtering is required by our existing Firestore security rules.
+  for(const session of sessions.docs){
+    const s=await getDocs(query(collection(db,'stock_count_sessions',session.id,'items'),where('branchId','==',branch),limit(500)));
+    for(const item of s.docs){
+     const data=item.data();
+     entries.push({...data,id:item.id,sessionId:session.id,sessionShort:session.id.slice(0,7)});
+    }
+  }
+  state.products=catalog.docs.map(x=>({...x.data(),id:x.id}));
+  state.entries=entries;state.loaded=true;render();
+  message('Connected to Firebase · refreshed shop snapshot.');
+ }catch(e){console.error('Raki owner data load failed',e);message('Unable to read shop data. Check Firebase permissions or connection.');}
+ finally{state.loading=false;el('reload').disabled=false}
+}
+if(!cfg?.apiKey||!cfg?.appId||!cfg?.projectId){
+ setText('loginStatus','Firebase configuration is missing. Deployment setup needs checking.');
+ el('loginBtn').disabled=true;
+}else{
+ const app=initializeApp(cfg);auth=getAuth(app);db=getFirestore(app);
+ el('loginform').addEventListener('submit',async ev=>{
+  ev.preventDefault();el('loginBtn').disabled=true;setText('loginStatus','Signing in securely...');
+  try{await signInWithEmailAndPassword(auth,el('email').value.trim(),el('password').value);}
+  catch(e){setText('loginStatus','Sign-in failed: '+(e.code||'Please check credentials and try again.'))}
+  finally{el('loginBtn').disabled=false}
+ });
+ onAuthStateChanged(auth,async user=>{
+  if(!user){state.user=null;state.loaded=false;hide('shell');show('login');setText('loginStatus','Use your existing Raki Stock owner credentials.');return}
+  try{
+   const docSnap=await getDoc(doc(db,'users',user.uid));const profile=docSnap.data();
+   if(!profile||profile.active!==true||profile.role!=='owner'||!profile.branchId){setText('loginStatus','Access denied: active owner role required.');await signOut(auth);return}
+   state.user=user;state.branch=profile.branchId;setText('ownerLabel',profile.displayName||'Shop owner');
+   setText('branchLabel',profile.branchId);hide('login');show('shell');await loadShop();
+  }catch(e){console.error('Owner profile check failed',e);setText('loginStatus','Unable to verify owner access. Please try again.');await signOut(auth)}
+ });
+}
+document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>setActivePage(b.dataset.nav)));
+document.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',()=>setActivePage(b.dataset.goto)));
+document.querySelectorAll('[data-lock]').forEach(b=>b.addEventListener('click',()=>message(b.dataset.lock+' will be enabled after financial and security tests.')));
+document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>el(b.dataset.close).close()));
+el('menuBtn').addEventListener('click',()=>el('sidebar').classList.toggle('open'));
+el('search').addEventListener('input',ev=>{state.search=ev.target.value.trim();if(state.search&&state.page==='dashboard')setActivePage('products');else render()});
+el('reload').addEventListener('click',loadShop);
+el('productsRefresh').addEventListener('click',loadShop);
 el('signout').addEventListener('click',()=>signOut(auth));
-onAuthStateChanged(auth,async user=>{
-if(!user){el('loginPanel').hidden=false;el('dashboard').hidden=true;status('Signed out');return}
-if(refreshing)return;refreshing=true;
-try{
-const snap=await getDoc(doc(db,'users',user.uid)),profile=snap.data();
-if(!profile||profile.role!=='owner'||profile.active!==true||!profile.branchId){
-status('Access denied: active owner account required');await signOut(auth);return;
-}
-const branch=profile.branchId;
-el('loginPanel').hidden=true;el('dashboard').hidden=false;status('Owner · '+branch);
-const [products,sessions]=await Promise.all([
-getDocs(query(collection(db,'products'),where('branchId','==',branch),limit(200))),
-getDocs(query(collection(db,'stock_count_sessions'),where('branchId','==',branch),limit(50)))
-]);
-currentCatalog=products.docs.map(doc=>doc.data());
-el('products').replaceChildren();el('entries').replaceChildren();
-products.forEach(d=>{
- const p=d.data(),tr=document.createElement('tr');
- photoCell(tr,p.photoUrl,Boolean(p.localPhotoPath));
- [p.name,p.barcode,p.stockQty,p.sellingPrice==null?'Not set':p.sellingPrice+' ETB'].forEach(v=>cell(tr,v));
- el('products').append(tr);
-});
-let pending=0,entries=0;
-for(const s of sessions.docs){
- const data=await getDocs(query(collection(db,'stock_count_sessions',s.id,'items'),where('branchId','==',branch),limit(500)));
- data.forEach(d=>{
-  const v=d.data();entries++;if(v.reviewState!=='added')pending++;
-  const tr=row(el('entries'),[s.id.slice(0,8),v.reviewedName||v.suggestedName||'Needs name',v.barcodeCandidate,v.quantity,v.reviewState||'pending']);
-  photoCell(tr,v.photoUrl,Boolean(v.localPhotoPath));
-  const td=document.createElement('td');
-  const button=document.createElement('button');
-  button.type='button';button.className='reviewBtn';button.textContent=v.reviewState==='added'?'View draft':'Review draft';
-  button.addEventListener('click',()=>presentReview(v));
-  td.append(button);tr.append(td);
-});
-}
-el('productCount').textContent=products.size+(products.size===200?'+':'');
-el('entryCount').textContent=entries;
-el('pendingCount').textContent=pending;
-}catch(err){status('Could not load shop data: '+(err?.code||err?.message||'error'))}
-finally{refreshing=false}
-});
-}
+el('reviewForm').addEventListener('submit',validateDraft);
+document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{
+ state.productFilter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(x=>x.setAttribute('aria-pressed',x===b?'true':'false'));renderProducts();
+}));
+document.querySelectorAll('[data-review-filter]').forEach(b=>b.addEventListener('click',()=>{
+ state.reviewFilter=b.dataset.reviewFilter;document.querySelectorAll('[data-review-filter]').forEach(x=>x.setAttribute('aria-pressed',x===b?'true':'false'));renderReview();
+}));
 </script>
-</body></html>
+</body>
+</html>
