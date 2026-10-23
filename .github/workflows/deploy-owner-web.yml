@@ -46,3 +46,6 @@ jobs:
           firebaseServiceAccount: ${{ secrets.RAKI_FIREBASE_HOSTING_SERVICE_ACCOUNT }}
           projectId: raki-stock-f3ab9
           channelId: live
+          # Pin to the Firebase CLI version used by our last successful deploy.
+          # The newer CLI started requiring serviceusage.services.get.
+          firebaseToolsVersion: '15.34.0'
