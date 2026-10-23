@@ -43,7 +43,11 @@ class _HomePageState extends State<HomePage> {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: AppTheme.primary,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF295AC6), Color(0xFF51BBFF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                     borderRadius: BorderRadius.circular(13),
                   ),
                   alignment: Alignment.center,
@@ -98,8 +102,13 @@ class _HomePageState extends State<HomePage> {
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary,
-                    borderRadius: BorderRadius.circular(24),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF142A51), Color(0xFF162638), Color(0xFF101927)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(color: const Color(0xFF314666)),
+                    borderRadius: BorderRadius.circular(21),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,7 +116,7 @@ class _HomePageState extends State<HomePage> {
                       const Text(
                         'QUICK PRODUCT LOOKUP',
                         style: TextStyle(
-                          color: Color(0xFFDDE2FF),
+                          color: Color(0xFFAAC6E5),
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 1,
@@ -115,7 +124,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Search or scan. Find it fast.',
+                        'Your shop.\nAlways in view.',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 24,
@@ -125,9 +134,9 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Registered products stay in a local catalog for quick search and matching. Barcode matches are instant.',
+                        'Explore the product library or scan a barcode instantly. Registration and approvals stay protected.',
                         style: TextStyle(
-                          color: Color(0xFFDDE2FF),
+                          color: Color(0xFFAAC6E5),
                           height: 1.4,
                         ),
                       ),
@@ -137,8 +146,8 @@ class _HomePageState extends State<HomePage> {
                           Expanded(
                             child: FilledButton.icon(
                               style: FilledButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: AppTheme.primary,
+                                backgroundColor: AppTheme.primary,
+                                foregroundColor: AppTheme.background,
                               ),
                               onPressed: () => Navigator.of(context).push(
                                 MaterialPageRoute(
@@ -157,8 +166,9 @@ class _HomePageState extends State<HomePage> {
                           Expanded(
                             child: FilledButton.icon(
                               style: FilledButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: AppTheme.primary,
+                                backgroundColor: AppTheme.raised,
+                                foregroundColor: AppTheme.ink,
+                                side: const BorderSide(color: AppTheme.border),
                               ),
                               onPressed: () => Navigator.of(context).push(
                                 MaterialPageRoute(
@@ -296,7 +306,7 @@ class _MetricCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(17),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -308,7 +318,7 @@ class _MetricCard extends StatelessWidget {
                 color: AppTheme.ink,
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 5),
             Text(
               label,
               style: const TextStyle(fontSize: 10, color: AppTheme.mutedInk),
@@ -339,6 +349,7 @@ class _ActionCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Card(
+        clipBehavior: Clip.antiAlias,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -351,10 +362,23 @@ class _ActionCard extends StatelessWidget {
                   color: AppTheme.primarySoft,
                   borderRadius: BorderRadius.circular(13),
                 ),
-                child: Icon(icon, color: AppTheme.primary),
+                child: Icon(icon, color: AppTheme.primary, size: 24),
               ),
               const SizedBox(height: 12),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_rounded,
+                    size: 17, color: AppTheme.primary),
+                ],
+              ),
               const SizedBox(height: 4),
               Text(
                 subtitle,
