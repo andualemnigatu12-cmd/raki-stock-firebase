@@ -259,11 +259,16 @@ class _ProductsPageState extends State<ProductsPage> {
       );
     }
 
-    return ListView.separated(
+    return GridView.builder(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 28),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 230,
+        mainAxisExtent: 272,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
       itemCount: _visible.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final product = _visible[index];
         return _ProductCard(
@@ -287,75 +292,151 @@ class _ProductCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _ProductPhoto(path: product.localPhotoPath),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            product.name.isEmpty ? 'Unnamed product' : product.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: AppTheme.ink,
-                            ),
-                          ),
-                        ),
-                        if (onTap != null)
-                          const Icon(
-                            Icons.edit_outlined,
-                            size: 18,
-                            color: AppTheme.mutedInk,
-                          ),
-                      ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  DecoratedBox(
+                    decoration: const BoxDecoration(
+                      gradient: RadialGradient(
+                        center: Alignment(-0.35, -0.55),
+                        radius: 1.2,
+                        colors: [
+                          Color(0xFF2B5B91),
+                          Color(0xFF1A2E4A),
+                          Color(0xFF111D31),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 5),
-                    if (product.barcode?.isNotEmpty == true)
-                      Text(
-                        'Barcode ${product.barcode}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AppTheme.mutedInk,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: _CatalogPhoto(path: product.localPhotoPath),
+                    ),
+                  ),
+                  Positioned(
+                    top: 9,
+                    right: 9,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppTheme.background.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(7),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
+                        child: Text(
+                          product.stockQty > 0 ? 'IN STOCK' : 'STOCK 0',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.ink,
+                            letterSpacing: 0.4,
+                            fontSize: 9,
+                          ),
                         ),
                       ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _MiniValue(
-                            label: 'PRICE',
-                            value: product.sellingPrice <= 0
-                                ? 'Not set'
-                                : '${product.sellingPrice.toStringAsFixed(2)} ETB',
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _MiniValue(
-                            label: 'STOCK',
-                            value: '${product.stockQty}',
-                          ),
-                        ),
-                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  if (onTap != null)
+                    const Positioned(
+                      right: 11,
+                      bottom: 9,
+                      child: Icon(
+                        Icons.edit_outlined,
+                        color: AppTheme.ink,
+                        size: 18,
+                      ),
+                    ),
+                ],
               ),
-            ],
-          ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 12, 13),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.name.isEmpty ? 'Unnamed product' : product.name,
+                    style: const TextStyle(
+                      color: AppTheme.ink,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      height: 1.3,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 9),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          product.sellingPrice <= 0
+                              ? 'PRICE NOT SET'
+                              : '${product.sellingPrice.toStringAsFixed(2)} ETB',
+                          style: TextStyle(
+                            color: product.sellingPrice <= 0
+                                ? AppTheme.warning
+                                : AppTheme.ink,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Qty ${product.stockQty}',
+                        style: const TextStyle(
+                          color: AppTheme.mutedInk,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CatalogPhoto extends StatelessWidget {
+  const _CatalogPhoto({this.path});
+
+  final String? path;
+
+  @override
+  Widget build(BuildContext context) {
+    final localPath = path;
+    if (localPath == null || localPath.isEmpty) {
+      return const Center(
+        child: Icon(
+          Icons.inventory_2_outlined,
+          color: Color(0xFF8BB4E4),
+          size: 57,
+        ),
+      );
+    }
+    return Image.file(
+      File(localPath),
+      fit: BoxFit.contain,
+      cacheWidth: 320,
+      errorBuilder: (_, _, _) => const Center(
+        child: Icon(
+          Icons.image_not_supported_outlined,
+          color: AppTheme.mutedInk,
+          size: 45,
         ),
       ),
     );
